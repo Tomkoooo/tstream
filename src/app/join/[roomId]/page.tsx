@@ -19,8 +19,8 @@ const JoinRoom: React.FC = () => {
   const [isJoined, setIsJoined] = useState<boolean>(false);
   const [fps, setFps] = useState<number>(30);
   const [bitrate, setBitrate] = useState<number>(2000);
-  const [deviceId, setDeviceId] = useState<string>('');
   const [videoDevices, setVideoDevices] = useState<MediaDeviceInfo[]>([]);
+  const [deviceId, setDeviceId] = useState<string>('');
   const [rotation, setRotation] = useState<number>(0);
   const [flip, setFlip] = useState<'none' | 'horizontal' | 'vertical'>('none');
 
@@ -29,14 +29,30 @@ const JoinRoom: React.FC = () => {
 
     const getCameras = async () => {
       try {
+        await navigator.mediaDevices.getUserMedia({ video: true });
+        
         const devices = await navigator.mediaDevices.enumerateDevices();
         const videoInputs = devices.filter((device) => device.kind === 'videoinput');
-        setVideoDevices(videoInputs);
-        if (videoInputs.length > 0) {
-          setDeviceId(videoInputs[0].deviceId);
+        
+        const sortedDevices = videoInputs.sort((a, b) => {
+          const aLabel = a.label.toLowerCase();
+          const bLabel = b.label.toLowerCase();
+          
+          if (aLabel.includes('front') && !bLabel.includes('front')) return -1;
+          if (!aLabel.includes('front') && bLabel.includes('front')) return 1;
+          
+          if (aLabel.includes('back') && !bLabel.includes('back')) return -1;
+          if (!aLabel.includes('back') && bLabel.includes('back')) return 1;
+          
+          return aLabel.localeCompare(bLabel);
+        });
+        
+        setVideoDevices(sortedDevices);
+        if (sortedDevices.length > 0) {
+          setDeviceId(sortedDevices[0].deviceId);
         }
       } catch (err) {
-        setError('Failed to access cameras');
+        setError('Nem sikerült hozzáférni a kamerákhoz. Kérjük, ellenőrizze a kamera engedélyeket.');
       }
     };
 
@@ -48,6 +64,14 @@ const JoinRoom: React.FC = () => {
       streamRef.current?.getTracks().forEach((track) => track.stop());
     };
   }, [roomId]);
+
+  const getCameraLabel = (device: MediaDeviceInfo) => {
+    const label = device.label.toLowerCase();
+    if (label.includes('front')) return 'Front camera';
+    if (label.includes('back')) return 'Back camera';
+    if (label.includes('external')) return 'External camera';
+    return device.label || `Camera ${device.deviceId.slice(0, 8)}`;
+  };
 
   const updateStream = async () => {
     setIsLoading(true);
@@ -79,9 +103,9 @@ const JoinRoom: React.FC = () => {
           sender.setParameters(parameters);
         }
       }
-      setSuccess('Settings updated successfully!');
+      setSuccess('Kamera beállítások sikeresen frissítve!');
     } catch (err) {
-      setError('Failed to update camera settings');
+      setError('Nem sikerült frissíteni a kamera beállításokat');
     } finally {
       setIsLoading(false);
     }
@@ -242,15 +266,18 @@ const JoinRoom: React.FC = () => {
                 <div className="text-center">{bitrate} kbps</div>
               </div>
               <div className="form-control mb-4">
-                <label className="label"><span className="label-text">Camera</span></label>
+                <label className="label"><span className="label-text">Kamera</span></label>
                 <select
                   className="select select-bordered w-full"
                   value={deviceId}
-                  onChange={(e) => setDeviceId(e.target.value)}
+                  onChange={(e) => {
+                    setDeviceId(e.target.value);
+                    updateStream();
+                  }}
                 >
                   {videoDevices.map((device) => (
                     <option key={device.deviceId} value={device.deviceId}>
-                      {device.label || `Camera ${device.deviceId.slice(0, 8)}`}
+                      {getCameraLabel(device)}
                     </option>
                   ))}
                 </select>
@@ -319,15 +346,18 @@ const JoinRoom: React.FC = () => {
                 <div className="text-center">{bitrate} kbps</div>
               </div>
               <div className="form-control mb-4">
-                <label className="label"><span className="label-text">Camera</span></label>
+                <label className="label"><span className="label-text">Kamera</span></label>
                 <select
                   className="select select-bordered w-full"
                   value={deviceId}
-                  onChange={(e) => setDeviceId(e.target.value)}
+                  onChange={(e) => {
+                    setDeviceId(e.target.value);
+                    updateStream();
+                  }}
                 >
                   {videoDevices.map((device) => (
                     <option key={device.deviceId} value={device.deviceId}>
-                      {device.label || `Camera ${device.deviceId.slice(0, 8)}`}
+                      {getCameraLabel(device)}
                     </option>
                   ))}
                 </select>
