@@ -26,8 +26,14 @@ app.prepare().then(() => {
     console.log(`New connection: ${socket.id}`);
 
     socket.on('create-room', (roomId, name, password) => {
-      console.log(`Creating room: ${roomId}, name: ${name}`);
-      rooms[roomId] = { name, password, participants: new Set(), adminSocketId: socket.id };
+      console.log(`Creating room: ${roomId}, name: ${name}, admin: ${socket.id}`);
+      rooms[roomId] = { 
+        name, 
+        password, 
+        participants: new Set(), 
+        adminSocketId: socket.id,
+        createdAt: Date.now()
+      };
       socket.join(roomId);
       socket.broadcast.emit('room-created', roomId);
       io.to(roomId).emit('participants', Array.from(rooms[roomId].participants));
@@ -41,6 +47,7 @@ app.prepare().then(() => {
         callback(false, 'Room does not exist');
         return;
       }
+
       // Admin csatlakozhat jelszó nélkül
       if (socket.id === rooms[roomId].adminSocketId) {
         console.log(`Admin join: ${socket.id} joined ${roomId}`);
@@ -50,12 +57,14 @@ app.prepare().then(() => {
         callback(true);
         return;
       }
+
       // Kliens jelszóval csatlakozik
       if (rooms[roomId].password !== password) {
         console.log(`Incorrect password for room: ${roomId}`);
         callback(false, 'Incorrect password');
         return;
       }
+
       rooms[roomId].participants.add(socket.id);
       socket.join(roomId);
       console.log(`Join successful: ${socket.id} joined ${roomId}`);
@@ -77,6 +86,42 @@ app.prepare().then(() => {
     socket.on('ice-candidate', (candidate, roomId, fromSocketId) => {
       console.log(`ICE candidate received from ${fromSocketId} for room ${roomId}`);
       socket.to(roomId).emit('ice-candidate', candidate, fromSocketId);
+    });
+
+    socket.on('kick-user', (roomId, targetSocketId) => {
+      console.log(`Kick request: ${socket.id} wants to kick ${targetSocketId} from room ${roomId}`);
+      
+      // Ellenőrizzük, hogy a szoba létezik-e
+      if (!rooms[roomId]) {
+        console.log(`Room ${roomId} not found`);
+        return;
+      }
+
+      // Ellenőrizzük, hogy a kérő admin-e
+      if (rooms[roomId].adminSocketId !== socket.id) {
+        console.log(`Unauthorized kick attempt by ${socket.id} in room ${roomId}`);
+        console.log(`Admin socket ID: ${rooms[roomId].adminSocketId}, Requester socket ID: ${socket.id}`);
+        return;
+      }
+
+      // Ellenőrizzük, hogy a cél felhasználó a szobában van-e
+      if (!rooms[roomId].participants.has(targetSocketId)) {
+        console.log(`Target user ${targetSocketId} not found in room ${roomId}`);
+        return;
+      }
+
+      // Küldjük a kick eseményt a cél felhasználónak
+      io.to(targetSocketId).emit('kicked', roomId);
+      
+      // Távolítsuk el a felhasználót a szobából
+      rooms[roomId].participants.delete(targetSocketId);
+      
+      // Értesítsük a többi felhasználót
+      io.to(roomId).emit('participants', Array.from(rooms[roomId].participants));
+      console.log(`User ${targetSocketId} has been kicked from room ${roomId}`);
+
+      // Küldjünk visszajelzést az adminnak
+      socket.emit('kick-success', targetSocketId);
     });
 
     socket.on('disconnect', () => {

@@ -19,24 +19,47 @@ const JoinRoom: React.FC = () => {
   const [isJoined, setIsJoined] = useState<boolean>(false);
   const [fps, setFps] = useState<number>(30);
   const [bitrate, setBitrate] = useState<number>(2000);
-  const [deviceId, setDeviceId] = useState<string>('');
   const [videoDevices, setVideoDevices] = useState<MediaDeviceInfo[]>([]);
+  const [deviceId, setDeviceId] = useState<string>('');
   const [rotation, setRotation] = useState<number>(0);
   const [flip, setFlip] = useState<'none' | 'horizontal' | 'vertical'>('none');
 
   useEffect(() => {
     socket.current = io({ path: '/api/socket', transports: ['websocket'] });
 
+    socket.current.on('kicked', (kickedRoomId: string) => {
+      if (kickedRoomId === roomId) {
+        setError('You have been kicked from the room');
+        leaveRoom();
+      }
+    });
+
     const getCameras = async () => {
       try {
+        await navigator.mediaDevices.getUserMedia({ video: true });
+        
         const devices = await navigator.mediaDevices.enumerateDevices();
         const videoInputs = devices.filter((device) => device.kind === 'videoinput');
-        setVideoDevices(videoInputs);
-        if (videoInputs.length > 0) {
-          setDeviceId(videoInputs[0].deviceId);
+        
+        const sortedDevices = videoInputs.sort((a, b) => {
+          const aLabel = a.label.toLowerCase();
+          const bLabel = b.label.toLowerCase();
+          
+          if (aLabel.includes('front') && !bLabel.includes('front')) return -1;
+          if (!aLabel.includes('front') && bLabel.includes('front')) return 1;
+          
+          if (aLabel.includes('back') && !bLabel.includes('back')) return -1;
+          if (!aLabel.includes('back') && bLabel.includes('back')) return 1;
+          
+          return aLabel.localeCompare(bLabel);
+        });
+        
+        setVideoDevices(sortedDevices);
+        if (sortedDevices.length > 0) {
+          setDeviceId(sortedDevices[0].deviceId);
         }
       } catch (err) {
-        setError('Failed to access cameras');
+        setError('Nem sikerült hozzáférni a kamerákhoz. Kérjük, ellenőrizze a kamera engedélyeket.');
       }
     };
 
@@ -48,6 +71,14 @@ const JoinRoom: React.FC = () => {
       streamRef.current?.getTracks().forEach((track) => track.stop());
     };
   }, [roomId]);
+
+  const getCameraLabel = (device: MediaDeviceInfo) => {
+    const label = device.label.toLowerCase();
+    if (label.includes('front')) return 'Front camera';
+    if (label.includes('back')) return 'Back camera';
+    if (label.includes('external')) return 'External camera';
+    return device.label || `Camera ${device.deviceId.slice(0, 8)}`;
+  };
 
   const updateStream = async () => {
     setIsLoading(true);
@@ -79,9 +110,9 @@ const JoinRoom: React.FC = () => {
           sender.setParameters(parameters);
         }
       }
-      setSuccess('Settings updated successfully!');
+      setSuccess('Kamera beállítások sikeresen frissítve!');
     } catch (err) {
-      setError('Failed to update camera settings');
+      setError('Nem sikerült frissíteni a kamera beállításokat');
     } finally {
       setIsLoading(false);
     }
@@ -110,6 +141,8 @@ const JoinRoom: React.FC = () => {
     setError(null);
 
     try {
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      
       const constraints: MediaStreamConstraints = {
         video: {
           frameRate: { ideal: fps },
@@ -120,21 +153,38 @@ const JoinRoom: React.FC = () => {
       };
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       streamRef.current = stream;
+      
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
+        await videoRef.current.play().catch(err => {
+          console.error('Video play error:', err);
+          setError('Nem sikerült elindítani a videót');
+        });
+      }
+
+      if (peerConnection.current) {
+        peerConnection.current.close();
       }
 
       peerConnection.current = new RTCPeerConnection({
-        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:stun1.l.google.com:19302' },
+          { urls: 'stun:stun2.l.google.com:19302' }
+        ],
+        iceCandidatePoolSize: 10,
+        bundlePolicy: 'max-bundle',
+        rtcpMuxPolicy: 'require'
       });
 
-      const sender = peerConnection.current.getSenders().find((s) => s.track?.kind === 'video');
-      if (sender) {
-        const parameters = sender.getParameters();
-        if (!parameters.encodings) parameters.encodings = [{}];
-        parameters.encodings[0].maxBitrate = bitrate * 1000;
-        sender.setParameters(parameters);
-      }
+      peerConnection.current.oniceconnectionstatechange = () => {
+        console.log('ICE kapcsolat állapot:', peerConnection.current?.iceConnectionState);
+        if (peerConnection.current?.iceConnectionState === 'failed' || 
+            peerConnection.current?.iceConnectionState === 'disconnected') {
+          console.log('Kapcsolat megszakadt, újrakapcsolódás...');
+          refreshVideo();
+        }
+      };
 
       stream.getTracks().forEach((track) => {
         peerConnection.current?.addTrack(track, stream);
@@ -148,32 +198,71 @@ const JoinRoom: React.FC = () => {
 
       socket.current?.on('offer', async (offer: RTCSessionDescriptionInit, fromSocketId: string) => {
         if (!peerConnection.current) return;
-        await peerConnection.current.setRemoteDescription(new RTCSessionDescription(offer));
-        const answer = await peerConnection.current.createAnswer();
-        await peerConnection.current.setLocalDescription(answer);
-        socket.current?.emit('answer', answer, roomId, socket.current.id);
+        try {
+          console.log('Processing offer from:', fromSocketId);
+          await peerConnection.current.setRemoteDescription(new RTCSessionDescription(offer));
+          const answer = await peerConnection.current.createAnswer();
+          await peerConnection.current.setLocalDescription(answer);
+          console.log('Sending answer to:', fromSocketId);
+          socket.current?.emit('answer', answer, roomId, socket.current.id);
+        } catch (err) {
+          console.error('Error processing offer:', err);
+          setError('Nem sikerült feldolgozni a WebRTC ajánlatot');
+          refreshVideo();
+        }
       });
 
       socket.current?.on('answer', async (answer: RTCSessionDescriptionInit, fromSocketId: string) => {
         if (!peerConnection.current) return;
-        await peerConnection.current.setRemoteDescription(new RTCSessionDescription(answer));
+        try {
+          console.log('Processing answer from:', fromSocketId);
+          if (peerConnection.current.signalingState !== 'stable') {
+            await peerConnection.current.setRemoteDescription(new RTCSessionDescription(answer));
+            console.log('Answer processed successfully');
+          } else {
+            console.log('Ignoring answer in stable state');
+          }
+        } catch (err) {
+          console.error('Error processing answer:', err);
+          setError('Nem sikerült feldolgozni a WebRTC választ');
+          refreshVideo();
+        }
       });
 
       socket.current?.on('ice-candidate', async (candidate: RTCIceCandidateInit, fromSocketId: string) => {
         if (!peerConnection.current) return;
-        await peerConnection.current.addIceCandidate(new RTCIceCandidate(candidate));
+        try {
+          console.log('Adding ICE candidate from:', fromSocketId);
+          if (peerConnection.current.remoteDescription) {
+            await peerConnection.current.addIceCandidate(new RTCIceCandidate(candidate));
+            console.log('ICE candidate added successfully');
+          } else {
+            console.log('Ignoring ICE candidate - no remote description');
+          }
+        } catch (err) {
+          console.error('Error adding ICE candidate:', err);
+        }
       });
 
       if (peerConnection.current && socket.current) {
-        const offer = await peerConnection.current.createOffer();
-        await peerConnection.current.setLocalDescription(offer);
-        socket.current.emit('offer', offer, roomId, socket.current.id);
+        try {
+          console.log('Creating initial offer');
+          const offer = await peerConnection.current.createOffer();
+          await peerConnection.current.setLocalDescription(offer);
+          console.log('Sending initial offer');
+          socket.current.emit('offer', offer, roomId, socket.current.id);
+        } catch (err) {
+          console.error('Error creating initial offer:', err);
+          setError('Nem sikerült létrehozni a WebRTC ajánlatot');
+          refreshVideo();
+        }
       }
 
       setIsCameraStarted(true);
-      setSuccess('Camera started successfully!');
+      setSuccess('Kamera sikeresen elindítva!');
     } catch (err) {
-      setError('Failed to access camera');
+      setError('Nem sikerült hozzáférni a kamerához');
+      console.error('Kamera hiba:', err);
     } finally {
       setIsLoading(false);
     }
@@ -182,14 +271,58 @@ const JoinRoom: React.FC = () => {
   const leaveRoom = () => {
     setIsLoading(true);
     streamRef.current?.getTracks().forEach((track) => track.stop());
-    peerConnection.current?.close();
+    streamRef.current = null;
+    
+    if (peerConnection.current) {
+      peerConnection.current.close();
+      peerConnection.current = null;
+    }
+    
     socket.current?.disconnect();
     socket.current = io({ path: '/api/socket', transports: ['websocket'] });
+    
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+    
     setIsCameraStarted(false);
     setIsJoined(false);
     setPassword('');
     setSuccess('Successfully left the room');
     setIsLoading(false);
+  };
+
+  const refreshVideo = async () => {
+    if (!isCameraStarted) return;
+    
+    setIsLoading(true);
+    try {
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      
+      const constraints: MediaStreamConstraints = {
+        video: {
+          frameRate: { ideal: fps },
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          deviceId: deviceId ? { exact: deviceId } : undefined,
+        },
+      };
+      
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      streamRef.current = stream;
+      
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.load();
+      }
+      
+      setSuccess('Video refreshed successfully');
+    } catch (err) {
+      setError('Failed to refresh video');
+      console.error('Video refresh error:', err);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -242,15 +375,18 @@ const JoinRoom: React.FC = () => {
                 <div className="text-center">{bitrate} kbps</div>
               </div>
               <div className="form-control mb-4">
-                <label className="label"><span className="label-text">Camera</span></label>
+                <label className="label"><span className="label-text">Kamera</span></label>
                 <select
                   className="select select-bordered w-full"
                   value={deviceId}
-                  onChange={(e) => setDeviceId(e.target.value)}
+                  onChange={(e) => {
+                    setDeviceId(e.target.value);
+                    updateStream();
+                  }}
                 >
                   {videoDevices.map((device) => (
                     <option key={device.deviceId} value={device.deviceId}>
-                      {device.label || `Camera ${device.deviceId.slice(0, 8)}`}
+                      {getCameraLabel(device)}
                     </option>
                   ))}
                 </select>
@@ -289,6 +425,7 @@ const JoinRoom: React.FC = () => {
               <video
                 ref={videoRef}
                 autoPlay
+                playsInline
                 className="w-full rounded-lg mb-4"
                 style={{
                   transform: `rotate(${rotation}deg) ${flip === 'horizontal' ? 'scaleX(-1)' : ''} ${flip === 'vertical' ? 'scaleY(-1)' : ''}`,
@@ -319,15 +456,18 @@ const JoinRoom: React.FC = () => {
                 <div className="text-center">{bitrate} kbps</div>
               </div>
               <div className="form-control mb-4">
-                <label className="label"><span className="label-text">Camera</span></label>
+                <label className="label"><span className="label-text">Kamera</span></label>
                 <select
                   className="select select-bordered w-full"
                   value={deviceId}
-                  onChange={(e) => setDeviceId(e.target.value)}
+                  onChange={(e) => {
+                    setDeviceId(e.target.value);
+                    updateStream();
+                  }}
                 >
                   {videoDevices.map((device) => (
                     <option key={device.deviceId} value={device.deviceId}>
-                      {device.label || `Camera ${device.deviceId.slice(0, 8)}`}
+                      {getCameraLabel(device)}
                     </option>
                   ))}
                 </select>
@@ -359,6 +499,9 @@ const JoinRoom: React.FC = () => {
               </div>
               <button className="btn btn-primary w-full mb-2" onClick={updateStream} disabled={isLoading}>
                 Update Settings
+              </button>
+              <button className="btn btn-secondary w-full mb-2" onClick={refreshVideo} disabled={isLoading}>
+                Refresh Video
               </button>
               <button className="btn btn-error w-full" onClick={leaveRoom} disabled={isLoading}>
                 Leave Call
