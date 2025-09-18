@@ -1,402 +1,903 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import io, { Socket } from 'socket.io-client';
 import { useParams } from 'next/navigation';
 
+interface Participant {
+  id: string;
+  isAdmin: boolean;
+  hasVideo: boolean;
+  hasAudio: boolean;
+  streamSettings: {
+    resolution: string;
+    fps: number;
+    bitrate: number;
+  };
+}
+
+interface StreamSettings {
+  resolution: '480p' | '720p' | '1080p';
+  fps: number;
+  bitrate: number;
+  audioEnabled: boolean;
+}
+
+interface VideoDevice {
+  deviceId: string;
+  label: string;
+}
+
+interface AudioDevice {
+  deviceId: string;
+  label: string;
+}
+
 const JoinRoom: React.FC = () => {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const socket = useRef<Socket | null>(null);
-  const peerConnection = useRef<RTCPeerConnection | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
   const params = useParams();
-  const roomId = params.roomId as string;
+  const roomId = params?.roomId as string;
+  
+  // Refs
+  const localVideoRef = useRef<HTMLVideoElement>(null);
+  const socketRef = useRef<Socket | null>(null);
+  const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
+  const localStreamRef = useRef<MediaStream | null>(null);
+  const pendingCandidatesRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
+
+  // States
+  const [password, setPassword] = useState<string>('');
+  const [isJoined, setIsJoined] = useState<boolean>(false);
+  const [isStreaming, setIsStreaming] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
-  const [isCameraStarted, setIsCameraStarted] = useState<boolean>(false);
-  const [password, setPassword] = useState<string>('');
-  const [isJoined, setIsJoined] = useState<boolean>(false);
-  const [fps, setFps] = useState<number>(30);
-  const [bitrate, setBitrate] = useState<number>(2000);
-  const [videoDevices, setVideoDevices] = useState<MediaDeviceInfo[]>([]);
-  const [deviceId, setDeviceId] = useState<string>('');
+  
+  // Device states
+  const [videoDevices, setVideoDevices] = useState<VideoDevice[]>([]);
+  const [audioDevices, setAudioDevices] = useState<AudioDevice[]>([]);
+  const [selectedVideoDevice, setSelectedVideoDevice] = useState<string>('');
+  const [selectedAudioDevice, setSelectedAudioDevice] = useState<string>('');
+  const [participants, setParticipants] = useState<Participant[]>([]);
+  const [isWaitingForAdmin, setIsWaitingForAdmin] = useState<boolean>(false);
+  
+  // Stream settings
+  const [streamSettings, setStreamSettings] = useState<StreamSettings>({
+    resolution: '720p',
+    fps: 30,
+    bitrate: 2000,
+    audioEnabled: true
+  });
+  
+  // Visual settings
   const [rotation, setRotation] = useState<number>(0);
   const [flip, setFlip] = useState<'none' | 'horizontal' | 'vertical'>('none');
 
-  useEffect(() => {
-    socket.current = io({ path: '/api/socket', transports: ['websocket'] });
+  // Eszközök lekérése
+  const getDevices = useCallback(async () => {
+    try {
+      // Engedélyek kérése
+      await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      
+      const videoInputs = devices
+        .filter(device => device.kind === 'videoinput')
+        .map(device => ({
+          deviceId: device.deviceId,
+          label: device.label || `Camera ${device.deviceId.slice(0, 8)}`
+        }));
+        
+      const audioInputs = devices
+        .filter(device => device.kind === 'audioinput')
+        .map(device => ({
+          deviceId: device.deviceId,
+          label: device.label || `Microphone ${device.deviceId.slice(0, 8)}`
+        }));
+      
+      setVideoDevices(videoInputs);
+      setAudioDevices(audioInputs);
+      
+      // Csak akkor állítsuk be az alapértelmezett eszközöket, ha még nincsenek beállítva
+      if (videoInputs.length > 0) {
+        setSelectedVideoDevice(prev => prev || videoInputs[0].deviceId);
+      }
+      
+      if (audioInputs.length > 0) {
+        setSelectedAudioDevice(prev => prev || audioInputs[0].deviceId);
+      }
+      
+    } catch (err) {
+      console.error('Error getting devices:', err);
+      setError('Nem sikerült hozzáférni a kamerához és mikrofonhoz. Ellenőrizd az engedélyeket.');
+    }
+  }, []);
 
-    socket.current.on('kicked', (kickedRoomId: string) => {
-      if (kickedRoomId === roomId) {
-        setError('You have been kicked from the room');
-        leaveRoom();
+  // Socket kapcsolat inicializálása
+  useEffect(() => {
+    if (!roomId) return;
+
+    socketRef.current = io({
+      path: '/api/socket',
+      transports: ['websocket'],
+      forceNew: true
+    });
+
+    const socket = socketRef.current;
+
+    // Socket események
+    socket.on('connect', () => {
+      console.log('Connected to server:', socket.id);
+    });
+
+    socket.on('user-joined', (data) => {
+      console.log('User joined:', data);
+      if (data.userId !== socket.id) {
+        // Peer connection létrehozása és offer küldése ha streamelünk
+        if (isStreaming && localStreamRef.current) {
+          console.log('Admin joined while streaming, creating peer connection');
+          const pc = createPeerConnection(data.userId);
+          
+          // Stream hozzáadása a peer connection-höz
+          console.log('Adding stream to peer connection for new admin:', data.userId);
+          localStreamRef.current.getTracks().forEach(track => {
+            console.log('Adding track:', track.kind);
+            pc.addTrack(track, localStreamRef.current!);
+          });
+          
+          // Offer küldése
+          setTimeout(async () => {
+            try {
+              if (pc.signalingState === 'stable') {
+                console.log('Sending offer to new admin:', data.userId);
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+                
+                if (socketRef.current) {
+                  socketRef.current.emit('offer', {
+                    offer,
+                    roomId,
+                    targetId: data.userId
+                  });
+                }
+          }
+        } catch (err) {
+              console.error('Error sending offer to new user:', err);
+            }
+          }, 100);
+        } else {
+          console.log('Not streaming or no stream available when admin joined');
+        }
       }
     });
 
-    const getCameras = async () => {
-      try {
-        await navigator.mediaDevices.getUserMedia({ video: true });
-        
-        const devices = await navigator.mediaDevices.enumerateDevices();
-        const videoInputs = devices.filter((device) => device.kind === 'videoinput');
-        
-        const sortedDevices = videoInputs.sort((a, b) => {
-          const aLabel = a.label.toLowerCase();
-          const bLabel = b.label.toLowerCase();
-          
-          if (aLabel.includes('front') && !bLabel.includes('front')) return -1;
-          if (!aLabel.includes('front') && bLabel.includes('front')) return 1;
-          
-          if (aLabel.includes('back') && !bLabel.includes('back')) return -1;
-          if (!aLabel.includes('back') && bLabel.includes('back')) return 1;
-          
-          return aLabel.localeCompare(bLabel);
-        });
-        
-        setVideoDevices(sortedDevices);
-        if (sortedDevices.length > 0) {
-          setDeviceId(sortedDevices[0].deviceId);
-        }
-      } catch (err) {
-        setError('Nem sikerült hozzáférni a kamerákhoz. Kérjük, ellenőrizze a kamera engedélyeket.');
-      }
-    };
+    socket.on('user-left', (userId) => {
+      console.log('User left:', userId);
+      closePeerConnection(userId);
+    });
 
-    getCameras();
+    socket.on('participants-updated', (updatedParticipants: Participant[]) => {
+      console.log('Participants updated:', updatedParticipants);
+      setParticipants(updatedParticipants);
+    });
+
+    socket.on('offer', async (data) => {
+      await handleOffer(data);
+    });
+
+    socket.on('answer', async (data) => {
+      await handleAnswer(data);
+    });
+
+    socket.on('ice-candidate', async (data) => {
+      await handleIceCandidate(data);
+    });
+
+    socket.on('kicked', () => {
+      setError('Ki lettél rúgva a szobából');
+      leaveRoom();
+    });
+
+    socket.on('disconnect', (reason) => {
+      console.log('Disconnected from server, reason:', reason);
+      setError(`Kapcsolat megszakadt: ${reason}`);
+    });
+
+    socket.on('connect_error', (error) => {
+      console.error('Socket connection error:', error);
+      setError(`Kapcsolódási hiba: ${error.message}`);
+    });
+
+    socket.on('error', (error) => {
+      console.error('Socket error:', error);
+      setError(`Socket hiba: ${error}`);
+    });
+
+    // Eszközök lekérése
+    getDevices();
 
     return () => {
-      socket.current?.disconnect();
-      peerConnection.current?.close();
-      streamRef.current?.getTracks().forEach((track) => track.stop());
+      socket.disconnect();
+      cleanupConnections();
     };
   }, [roomId]);
 
-  const getCameraLabel = (device: MediaDeviceInfo) => {
-    const label = device.label.toLowerCase();
-    if (label.includes('front')) return 'Front camera';
-    if (label.includes('back')) return 'Back camera';
-    if (label.includes('external')) return 'External camera';
-    return device.label || `Camera ${device.deviceId.slice(0, 8)}`;
-  };
+  // WebRTC peer connection létrehozása
+  const createPeerConnection = useCallback((targetId: string) => {
+    if (peerConnectionsRef.current.has(targetId)) {
+      console.log('♻️ Reusing existing peer connection for:', targetId);
+      return peerConnectionsRef.current.get(targetId)!;
+    }
 
-  const updateStream = async () => {
-    setIsLoading(true);
-    setError(null);
+    console.log('🆕 Creating new peer connection for:', targetId);
 
-    try {
-      streamRef.current?.getTracks().forEach((track) => track.stop());
-      const constraints: MediaStreamConstraints = {
-        video: {
-          frameRate: { ideal: fps },
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-          deviceId: deviceId ? { exact: deviceId } : undefined,
+    const pc = new RTCPeerConnection({
+      iceServers: [
+        // Google STUN szerverek
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:stun2.l.google.com:19302' },
+        
+        // Alternatív STUN szerverek
+        { urls: 'stun:stun.cloudflare.com:3478' },
+        { urls: 'stun:stun.nextcloud.com:443' },
+        { urls: 'stun:stun.services.mozilla.com:3478' },
+        
+        // Ingyenes TURN szerverek
+        { 
+          urls: 'turn:openrelay.metered.ca:80',
+          username: 'openrelayproject',
+          credential: 'openrelayproject'
         },
-      };
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-      }
-
-      if (peerConnection.current) {
-        const sender = peerConnection.current.getSenders().find((s) => s.track?.kind === 'video');
-        if (sender && stream.getVideoTracks()[0]) {
-          sender.replaceTrack(stream.getVideoTracks()[0]);
-          const parameters = sender.getParameters();
-          if (!parameters.encodings) parameters.encodings = [{}];
-          parameters.encodings[0].maxBitrate = bitrate * 1000;
-          sender.setParameters(parameters);
+        { 
+          urls: 'turn:openrelay.metered.ca:443',
+          username: 'openrelayproject', 
+          credential: 'openrelayproject'
+        },
+        { 
+          urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+          username: 'openrelayproject',
+          credential: 'openrelayproject'
         }
-      }
-      setSuccess('Kamera beállítások sikeresen frissítve!');
-    } catch (err) {
-      setError('Nem sikerült frissíteni a kamera beállításokat');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleJoinRoom = () => {
-    if (!password) {
-      setError('Password is required');
-      return;
-    }
-    setIsLoading(true);
-    setError(null);
-    socket.current?.emit('join-room', roomId, password, (success: boolean, errorMsg?: string) => {
-      setIsLoading(false);
-      if (!success) {
-        setError(errorMsg || 'Failed to join room');
-        return;
-      }
-      setSuccess('Successfully joined the room!');
-      setIsJoined(true);
+      ],
+      iceCandidatePoolSize: 10,
+      bundlePolicy: 'max-bundle',
+      rtcpMuxPolicy: 'require'
     });
-  };
 
-  const startCamera = async () => {
-    setIsLoading(true);
-    setError(null);
+    // Local stream hozzáadása (csak új connection esetén)
+    if (localStreamRef.current) {
+      console.log('🎵 Adding tracks to new peer connection:', localStreamRef.current.getTracks().length);
+      localStreamRef.current.getTracks().forEach((track, index) => {
+        console.log(`➕ Adding track ${index}:`, track.kind, track.enabled);
+        pc.addTrack(track, localStreamRef.current!);
+      });
+    }
 
-    try {
-      streamRef.current?.getTracks().forEach((track) => track.stop());
-      
-      const constraints: MediaStreamConstraints = {
-        video: {
-          frameRate: { ideal: fps },
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-          deviceId: deviceId ? { exact: deviceId } : undefined,
-        },
-      };
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      streamRef.current = stream;
-      
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play().catch(err => {
-          console.error('Video play error:', err);
-          setError('Nem sikerült elindítani a videót');
+    // ICE candidate kezelés
+    pc.onicecandidate = (event) => {
+      if (event.candidate && socketRef.current) {
+        socketRef.current.emit('ice-candidate', {
+          candidate: event.candidate,
+          roomId: params?.roomId as string,
+          targetId
         });
       }
+    };
 
-      if (peerConnection.current) {
-        peerConnection.current.close();
+    // Connection state változások
+    pc.oniceconnectionstatechange = () => {
+      console.log(`ICE connection state with ${targetId}:`, pc.iceConnectionState);
+      if (pc.iceConnectionState === 'failed') {
+        pc.restartIce();
       }
+    };
 
-      peerConnection.current = new RTCPeerConnection({
-        iceServers: [
-          { urls: 'stun:stun.l.google.com:19302' },
-          { urls: 'stun:stun1.l.google.com:19302' },
-          { urls: 'stun:stun2.l.google.com:19302' }
-        ],
-        iceCandidatePoolSize: 10,
-        bundlePolicy: 'max-bundle',
-        rtcpMuxPolicy: 'require'
-      });
+    pc.onconnectionstatechange = () => {
+      console.log(`Connection state with ${targetId}:`, pc.connectionState);
+    };
 
-      peerConnection.current.oniceconnectionstatechange = () => {
-        console.log('ICE kapcsolat állapot:', peerConnection.current?.iceConnectionState);
-        if (peerConnection.current?.iceConnectionState === 'failed' || 
-            peerConnection.current?.iceConnectionState === 'disconnected') {
-          console.log('Kapcsolat megszakadt, újrakapcsolódás...');
-          refreshVideo();
-        }
-      };
+    peerConnectionsRef.current.set(targetId, pc);
+    return pc;
+  }, []);
 
-      stream.getTracks().forEach((track) => {
-        peerConnection.current?.addTrack(track, stream);
-      });
-
-      peerConnection.current.onicecandidate = (event) => {
-        if (event.candidate && socket.current) {
-          socket.current.emit('ice-candidate', event.candidate, roomId, socket.current.id);
-        }
-      };
-
-      socket.current?.on('offer', async (offer: RTCSessionDescriptionInit, fromSocketId: string) => {
-        if (!peerConnection.current) return;
-        try {
-          console.log('Processing offer from:', fromSocketId);
-          await peerConnection.current.setRemoteDescription(new RTCSessionDescription(offer));
-          const answer = await peerConnection.current.createAnswer();
-          await peerConnection.current.setLocalDescription(answer);
-          console.log('Sending answer to:', fromSocketId);
-          socket.current?.emit('answer', answer, roomId, socket.current.id);
-        } catch (err) {
-          console.error('Error processing offer:', err);
-          setError('Nem sikerült feldolgozni a WebRTC ajánlatot');
-          refreshVideo();
-        }
-      });
-
-      socket.current?.on('answer', async (answer: RTCSessionDescriptionInit, fromSocketId: string) => {
-        if (!peerConnection.current) return;
-        try {
-          console.log('Processing answer from:', fromSocketId);
-          if (peerConnection.current.signalingState !== 'stable') {
-            await peerConnection.current.setRemoteDescription(new RTCSessionDescription(answer));
-            console.log('Answer processed successfully');
-          } else {
-            console.log('Ignoring answer in stable state');
-          }
-        } catch (err) {
-          console.error('Error processing answer:', err);
-          setError('Nem sikerült feldolgozni a WebRTC választ');
-          refreshVideo();
-        }
-      });
-
-      socket.current?.on('ice-candidate', async (candidate: RTCIceCandidateInit, fromSocketId: string) => {
-        if (!peerConnection.current) return;
-        try {
-          console.log('Adding ICE candidate from:', fromSocketId);
-          if (peerConnection.current.remoteDescription) {
-            await peerConnection.current.addIceCandidate(new RTCIceCandidate(candidate));
-            console.log('ICE candidate added successfully');
-          } else {
-            console.log('Ignoring ICE candidate - no remote description');
-          }
-        } catch (err) {
-          console.error('Error adding ICE candidate:', err);
-        }
-      });
-
-      if (peerConnection.current && socket.current) {
-        try {
-          console.log('Creating initial offer');
-          const offer = await peerConnection.current.createOffer();
-          await peerConnection.current.setLocalDescription(offer);
-          console.log('Sending initial offer');
-          socket.current.emit('offer', offer, roomId, socket.current.id);
-        } catch (err) {
-          console.error('Error creating initial offer:', err);
-          setError('Nem sikerült létrehozni a WebRTC ajánlatot');
-          refreshVideo();
-        }
+  // Offer kezelése
+  const handleOffer = useCallback(async (data: { offer: RTCSessionDescriptionInit, fromId: string, roomId: string }) => {
+    try {
+      console.log('📨 Received offer from admin:', data.fromId);
+      
+      if (!localStreamRef.current) {
+        console.warn('❌ No local stream available');
+        console.log('isStreaming:', isStreaming, 'localStream:', !!localStreamRef.current);
+        return;
       }
-
-      setIsCameraStarted(true);
-      setSuccess('Kamera sikeresen elindítva!');
+      
+      console.log('✅ Local stream available, proceeding with offer handling');
+      
+      // Ellenőrizzük hogy van-e már peer connection
+      let pc = peerConnectionsRef.current.get(data.fromId);
+      if (!pc) {
+        console.log('🆕 Creating peer connection for offer from:', data.fromId);
+        pc = createPeerConnection(data.fromId);
+      } else {
+        console.log('♻️ Using existing peer connection for:', data.fromId);
+      }
+      
+      if (!pc) {
+        console.error('Failed to get peer connection');
+        return;
+      }
+      
+      console.log('📹 Local stream tracks available:', localStreamRef.current.getTracks().length);
+      
+      // Remote description beállítása
+      await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
+      console.log('✅ Set remote description successfully');
+      
+      // Pending ICE candidates feldolgozása
+      const pendingCandidates = pendingCandidatesRef.current.get(data.fromId) || [];
+      console.log('🧊 Processing pending ICE candidates:', pendingCandidates.length);
+      for (const candidate of pendingCandidates) {
+        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+      }
+      pendingCandidatesRef.current.delete(data.fromId);
+      
+      // Answer létrehozása és küldése
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      console.log('📤 Sending answer to admin:', data.fromId);
+      
+      if (socketRef.current) {
+        socketRef.current.emit('answer', {
+          answer,
+          roomId: data.roomId,
+          targetId: data.fromId
+        });
+      }
+      
+      setSuccess('Kapcsolódva az adminhoz! 🎉');
+      setIsWaitingForAdmin(false);
+      
     } catch (err) {
-      setError('Nem sikerült hozzáférni a kamerához');
-      console.error('Kamera hiba:', err);
+      console.error('❌ Error handling offer:', err);
+      setError('Hiba történt a kapcsolat létrehozása során');
+    }
+  }, [createPeerConnection, isStreaming]);
+
+  // Answer kezelése
+  const handleAnswer = useCallback(async (data: { answer: RTCSessionDescriptionInit, fromId: string }) => {
+    try {
+      const pc = peerConnectionsRef.current.get(data.fromId);
+      if (pc && pc.signalingState === 'have-local-offer') {
+        await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+        
+        // Pending ICE candidates feldolgozása
+        const pendingCandidates = pendingCandidatesRef.current.get(data.fromId) || [];
+        for (const candidate of pendingCandidates) {
+          await pc.addIceCandidate(new RTCIceCandidate(candidate));
+        }
+        pendingCandidatesRef.current.delete(data.fromId);
+      }
+    } catch (err) {
+      console.error('Error handling answer:', err);
+    }
+  }, []);
+
+  // ICE candidate kezelése
+  const handleIceCandidate = useCallback(async (data: { candidate: RTCIceCandidateInit, fromId: string }) => {
+    try {
+      const pc = peerConnectionsRef.current.get(data.fromId);
+      if (pc && pc.remoteDescription) {
+        await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+      } else {
+        // Pending candidates tárolása
+        const pending = pendingCandidatesRef.current.get(data.fromId) || [];
+        pending.push(data.candidate);
+        pendingCandidatesRef.current.set(data.fromId, pending);
+      }
+    } catch (err) {
+      console.error('Error handling ICE candidate:', err);
+    }
+  }, []);
+
+  // Szobához csatlakozás
+  const joinRoom = useCallback(() => {
+    if (!password.trim()) {
+      setError('Jelszó megadása kötelező');
+      return;
+    }
+
+    setIsLoading(true);
+    setError(null);
+
+    if (socketRef.current) {
+      socketRef.current.emit('join-room', roomId, password, (response: { success: boolean, error?: string, isAdmin?: boolean }) => {
+      setIsLoading(false);
+        
+        if (response.success) {
+          setIsJoined(true);
+          setSuccess('Sikeresen csatlakoztál a szobához!');
+        } else {
+          setError(response.error || 'Sikertelen csatlakozás');
+        }
+      });
+    }
+  }, [roomId, password]);
+
+  // Stream indítása
+  const startStream = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      // Korábbi stream leállítása
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach(track => track.stop());
+      }
+
+      // Constraints összeállítása
+      const resolutionMap = {
+        '480p': { width: 854, height: 480 },
+        '720p': { width: 1280, height: 720 },
+        '1080p': { width: 1920, height: 1080 }
+      };
+
+      const constraints: MediaStreamConstraints = {
+        video: {
+          deviceId: selectedVideoDevice ? { exact: selectedVideoDevice } : undefined,
+          ...resolutionMap[streamSettings.resolution],
+          frameRate: { ideal: streamSettings.fps }
+        },
+        audio: streamSettings.audioEnabled ? {
+          deviceId: selectedAudioDevice ? { exact: selectedAudioDevice } : undefined,
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        } : false
+      };
+
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      localStreamRef.current = stream;
+      console.log('🎥 Local stream created with tracks:', stream.getTracks().length);
+
+      // Local video megjelenítése
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = stream;
+      }
+
+      // Bitráta beállítása
+      const videoTrack = stream.getVideoTracks()[0];
+      if (videoTrack) {
+        const sender = peerConnectionsRef.current.values();
+        for (const pc of sender) {
+          const senders = pc.getSenders();
+          const videoSender = senders.find(s => s.track?.kind === 'video');
+          if (videoSender) {
+            const params = videoSender.getParameters();
+            if (!params.encodings) params.encodings = [{}];
+            params.encodings[0].maxBitrate = streamSettings.bitrate * 1000;
+            await videoSender.setParameters(params);
+          }
+        }
+      }
+
+      // Meglévő peer connectionökhöz stream hozzáadása
+      for (const [targetId, pc] of peerConnectionsRef.current.entries()) {
+        try {
+          // Korábbi trackok eltávolítása
+          pc.getSenders().forEach(sender => {
+            if (sender.track) {
+              pc.removeTrack(sender);
+            }
+          });
+
+          // Új trackok hozzáadása
+          stream.getTracks().forEach(track => {
+            pc.addTrack(track, stream);
+          });
+
+          // Új offer küldése csak ha a peer connection stabil állapotban van
+          if (pc.signalingState === 'stable' && socketRef.current) {
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+            
+            socketRef.current.emit('offer', {
+              offer,
+              roomId,
+              targetId
+            });
+          }
+        } catch (err) {
+          console.error(`Error updating stream for ${targetId}:`, err);
+        }
+      }
+
+      // Stream állapot frissítése a szerveren
+      if (socketRef.current) {
+        socketRef.current.emit('update-stream-status', roomId, {
+          hasVideo: true,
+          hasAudio: streamSettings.audioEnabled
+        });
+
+        socketRef.current.emit('update-stream-settings', roomId, streamSettings);
+      }
+
+      setIsStreaming(true);
+      setIsWaitingForAdmin(true);
+      console.log('✅ Stream state updated: isStreaming=true, localStream=', !!localStreamRef.current);
+      setSuccess('Stream sikeresen elindítva! Várakozás az admin csatlakozására...');
+      
+      // Csak jelezzük a szervernek hogy streamelünk - az admin fog kezdeményezni
+      console.log('Stream started, waiting for admin to connect...');
+
+    } catch (err) {
+      console.error('Error starting stream:', err);
+      setError('Nem sikerült elindítani a streamet. Ellenőrizd a kamera és mikrofon engedélyeket.');
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [selectedVideoDevice, selectedAudioDevice, streamSettings, roomId]);
 
-  const leaveRoom = () => {
-    setIsLoading(true);
-    streamRef.current?.getTracks().forEach((track) => track.stop());
-    streamRef.current = null;
-    
-    if (peerConnection.current) {
-      peerConnection.current.close();
-      peerConnection.current = null;
+  // Stream leállítása
+  const stopStream = useCallback(() => {
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach(track => track.stop());
+      localStreamRef.current = null;
     }
-    
-    socket.current?.disconnect();
-    socket.current = io({ path: '/api/socket', transports: ['websocket'] });
-    
-    if (videoRef.current) {
-      videoRef.current.srcObject = null;
-    }
-    
-    setIsCameraStarted(false);
-    setIsJoined(false);
-    setPassword('');
-    setSuccess('Successfully left the room');
-    setIsLoading(false);
-  };
 
-  const refreshVideo = async () => {
-    if (!isCameraStarted) return;
+    if (localVideoRef.current) {
+      localVideoRef.current.srcObject = null;
+    }
+
+    // Stream állapot frissítése a szerveren
+    if (socketRef.current) {
+      socketRef.current.emit('update-stream-status', roomId, {
+        hasVideo: false,
+        hasAudio: false
+      });
+    }
+
+    setIsStreaming(false);
+    setSuccess('Stream leállítva');
+  }, [roomId]);
+
+  // Stream beállítások frissítése
+  const updateStreamSettings = useCallback(async () => {
+    if (!isStreaming) return;
     
     setIsLoading(true);
     try {
-      streamRef.current?.getTracks().forEach((track) => track.stop());
-      
-      const constraints: MediaStreamConstraints = {
-        video: {
-          frameRate: { ideal: fps },
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-          deviceId: deviceId ? { exact: deviceId } : undefined,
-        },
-      };
-      
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      streamRef.current = stream;
-      
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.load();
-      }
-      
-      setSuccess('Video refreshed successfully');
-    } catch (err) {
-      setError('Failed to refresh video');
-      console.error('Video refresh error:', err);
+      await startStream(); // Újraindítjuk a streamet az új beállításokkal
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [isStreaming, startStream]);
 
+  // Szoba elhagyása
+  const leaveRoom = useCallback(() => {
+    stopStream();
+    cleanupConnections();
+    
+    if (socketRef.current) {
+      socketRef.current.disconnect();
+    }
+    
+    setIsJoined(false);
+    setPassword('');
+    setSuccess('Sikeresen elhagytad a szobát');
+  }, [stopStream]);
+
+  // Kapcsolatok tisztítása
+  const cleanupConnections = useCallback(() => {
+    peerConnectionsRef.current.forEach(pc => pc.close());
+    peerConnectionsRef.current.clear();
+    pendingCandidatesRef.current.clear();
+  }, []);
+
+  // Peer connection bezárása
+  const closePeerConnection = useCallback((targetId: string) => {
+    const pc = peerConnectionsRef.current.get(targetId);
+    if (pc) {
+      pc.close();
+      peerConnectionsRef.current.delete(targetId);
+    }
+    pendingCandidatesRef.current.delete(targetId);
+  }, []);
+
+  // Render
   return (
-    <div className="container mx-auto p-4 flex flex-col items-center">
-      <h1 className="text-2xl font-bold mb-4">Join Room: {roomId}</h1>
-      {error && <div className="alert alert-error mb-4"><span>{error}</span></div>}
-      {success && <div className="alert alert-success mb-4"><span>{success}</span></div>}
-      {isLoading && <span className="loading loading-spinner loading-lg mb-4"></span>}
+    <div className="min-h-screen bg-base-200 p-4">
+      <div className="container mx-auto max-w-4xl">
+        <div className="text-center mb-6">
+          <h1 className="text-3xl font-bold text-primary mb-2">
+            Csatlakozás szobához
+          </h1>
+          <p className="text-base-content/70">Szoba ID: {roomId}</p>
+        </div>
+
+        {/* Hibaüzenetek */}
+        {error && (
+          <div className="alert alert-error mb-4">
+            <span>{error}</span>
+          </div>
+        )}
+
+        {success && (
+          <div className="alert alert-success mb-4">
+            <span>{success}</span>
+          </div>
+        )}
+
+        {isWaitingForAdmin && (
+          <div className="alert alert-info mb-4">
+            <span className="loading loading-spinner loading-sm"></span>
+            <span>Várakozás az admin csatlakozására...</span>
+          </div>
+        )}
+
+        {/* Loading */}
+        {isLoading && (
+          <div className="flex justify-center mb-4">
+            <span className="loading loading-spinner loading-lg"></span>
+          </div>
+        )}
+
       {!isJoined ? (
-        <div className="form-control w-full max-w-xs">
-          <label className="label"><span className="label-text">Password</span></label>
+          /* Csatlakozási form */
+          <div className="card bg-base-100 shadow-xl max-w-md mx-auto">
+            <div className="card-body">
+              <h2 className="card-title justify-center mb-4">Belépés</h2>
+              
+              <div className="form-control">
+                <label className="label">
+                  <span className="label-text">Szoba jelszava</span>
+                </label>
           <input
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="input input-bordered w-full"
-            placeholder="Enter room password"
+                  className="input input-bordered"
+                  placeholder="Add meg a jelszót"
             disabled={isLoading}
-          />
-          <button className="btn btn-primary mt-4" onClick={handleJoinRoom} disabled={isLoading}>
-            Join Room
-          </button>
-        </div>
-      ) : (
-        <div className="w-full max-w-xs">
-          {!isCameraStarted ? (
-            <>
-              <div className="form-control mb-4">
-                <label className="label"><span className="label-text">FPS</span></label>
-                <input
-                  type="range"
-                  min={15}
-                  max={60}
-                  value={fps}
-                  className="range range-primary"
-                  onChange={(e) => setFps(Number(e.target.value))}
+                  onKeyPress={(e) => e.key === 'Enter' && joinRoom()}
                 />
-                <div className="text-center">{fps} FPS</div>
               </div>
-              <div className="form-control mb-4">
-                <label className="label"><span className="label-text">Bitrate (kbps)</span></label>
-                <input
-                  type="range"
-                  min={500}
-                  max={5000}
-                  value={bitrate}
-                  className="range range-primary"
-                  onChange={(e) => setBitrate(Number(e.target.value))}
-                />
-                <div className="text-center">{bitrate} kbps</div>
-              </div>
-              <div className="form-control mb-4">
-                <label className="label"><span className="label-text">Kamera</span></label>
-                <select
-                  className="select select-bordered w-full"
-                  value={deviceId}
-                  onChange={(e) => {
-                    setDeviceId(e.target.value);
-                    updateStream();
-                  }}
+
+              <div className="card-actions justify-center mt-4">
+                <button
+                  onClick={joinRoom}
+                  disabled={isLoading || !password.trim()}
+                  className="btn btn-primary btn-wide"
                 >
-                  {videoDevices.map((device) => (
+                  Csatlakozás
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : (
+          /* Streaming interfész */
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            
+            {/* Video előnézet */}
+            <div className="lg:col-span-2">
+              <div className="card bg-base-100 shadow-xl">
+                <div className="card-body">
+                  <h2 className="card-title mb-4">
+                    {isStreaming ? 'Élő stream' : 'Kamera előnézet'}
+                  </h2>
+                  
+                  <div className="relative bg-black rounded-lg overflow-hidden">
+                    <video
+                      ref={localVideoRef}
+                      autoPlay
+                      playsInline
+                      muted
+                      className="w-full h-auto"
+                      style={{
+                        transform: `rotate(${rotation}deg) ${
+                          flip === 'horizontal' ? 'scaleX(-1)' : ''
+                        } ${flip === 'vertical' ? 'scaleY(-1)' : ''}`
+                      }}
+                    />
+                    
+                    {!isStreaming && (
+                      <div className="absolute inset-0 flex items-center justify-center bg-black/50">
+                        <div className="text-center text-white">
+                          <p className="text-lg mb-2">Stream nincs elindítva</p>
+                          <p className="text-sm opacity-75">
+                            Állítsd be a beállításokat és indítsd el a streamet
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Stream vezérlők */}
+                  <div className="flex gap-2 mt-4">
+                    {!isStreaming ? (
+                      <button
+                        onClick={startStream}
+                        disabled={isLoading}
+                        className="btn btn-success flex-1"
+                      >
+                        {isLoading ? (
+                          <>
+                            <span className="loading loading-spinner loading-sm"></span>
+                            Indítás...
+                          </>
+                        ) : (
+                          'Stream indítása'
+                        )}
+                      </button>
+                    ) : (
+                      <>
+                        <button
+                          onClick={stopStream}
+                          disabled={isLoading}
+                          className="btn btn-error flex-1"
+                        >
+                          {isLoading ? (
+                            <>
+                              <span className="loading loading-spinner loading-sm"></span>
+                              Leállítás...
+                            </>
+                          ) : (
+                            'Stream leállítása'
+                          )}
+                        </button>
+                        <button
+                          onClick={updateStreamSettings}
+                          disabled={isLoading}
+                          className="btn btn-warning"
+                        >
+                          Beállítások frissítése
+                        </button>
+                      </>
+                    )}
+                    
+                    <button
+                      onClick={leaveRoom}
+                      className="btn btn-outline btn-error"
+                    >
+                      Szoba elhagyása
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Beállítások panel */}
+            <div className="space-y-4">
+              
+              {/* Eszköz kiválasztás */}
+              <div className="card bg-base-100 shadow-xl">
+                <div className="card-body">
+                  <h3 className="card-title text-lg">Eszközök</h3>
+                  
+                  <div className="form-control">
+                    <label className="label">
+                      <span className="label-text">Kamera</span>
+                    </label>
+                <select
+                      value={selectedVideoDevice}
+                      onChange={(e) => setSelectedVideoDevice(e.target.value)}
+                      className="select select-bordered select-sm"
+                      disabled={isStreaming}
+                    >
+                      {videoDevices.map(device => (
                     <option key={device.deviceId} value={device.deviceId}>
-                      {getCameraLabel(device)}
+                          {device.label}
                     </option>
                   ))}
                 </select>
               </div>
-              <div className="form-control mb-4">
-                <label className="label"><span className="label-text">Rotation</span></label>
+
+                  <div className="form-control">
+                    <label className="label">
+                      <span className="label-text">Mikrofon</span>
+                    </label>
                 <select
-                  className="select select-bordered w-full"
+                      value={selectedAudioDevice}
+                      onChange={(e) => setSelectedAudioDevice(e.target.value)}
+                      className="select select-bordered select-sm"
+                      disabled={isStreaming}
+                    >
+                      {audioDevices.map(device => (
+                        <option key={device.deviceId} value={device.deviceId}>
+                          {device.label}
+                        </option>
+                      ))}
+                </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Stream beállítások */}
+              <div className="card bg-base-100 shadow-xl">
+                <div className="card-body">
+                  <h3 className="card-title text-lg">Stream beállítások</h3>
+                  
+                  <div className="form-control">
+                    <label className="label">
+                      <span className="label-text">Felbontás</span>
+                    </label>
+                <select
+                      value={streamSettings.resolution}
+                      onChange={(e) => setStreamSettings(prev => ({
+                        ...prev,
+                        resolution: e.target.value as '480p' | '720p' | '1080p'
+                      }))}
+                      className="select select-bordered select-sm"
+                    >
+                      <option value="480p">480p (854×480)</option>
+                      <option value="720p">720p (1280×720)</option>
+                      <option value="1080p">1080p (1920×1080)</option>
+                </select>
+              </div>
+
+                  <div className="form-control">
+                    <label className="label">
+                      <span className="label-text">FPS: {streamSettings.fps}</span>
+                    </label>
+                <input
+                  type="range"
+                  min={15}
+                  max={60}
+                      value={streamSettings.fps}
+                      onChange={(e) => setStreamSettings(prev => ({
+                        ...prev,
+                        fps: Number(e.target.value)
+                      }))}
+                      className="range range-primary range-sm"
+                    />
+              </div>
+
+                  <div className="form-control">
+                    <label className="label">
+                      <span className="label-text">Bitráta: {streamSettings.bitrate} kbps</span>
+                    </label>
+                <input
+                  type="range"
+                  min={500}
+                      max={8000}
+                      value={streamSettings.bitrate}
+                      onChange={(e) => setStreamSettings(prev => ({
+                        ...prev,
+                        bitrate: Number(e.target.value)
+                      }))}
+                      className="range range-primary range-sm"
+                    />
+                  </div>
+
+                  <div className="form-control">
+                    <label className="cursor-pointer label">
+                      <span className="label-text">Hang engedélyezése</span>
+                      <input
+                        type="checkbox"
+                        checked={streamSettings.audioEnabled}
+                        onChange={(e) => setStreamSettings(prev => ({
+                          ...prev,
+                          audioEnabled: e.target.checked
+                        }))}
+                        className="checkbox checkbox-primary"
+                      />
+                    </label>
+                  </div>
+              </div>
+              </div>
+
+              {/* Vizuális beállítások */}
+              <div className="card bg-base-100 shadow-xl">
+                <div className="card-body">
+                  <h3 className="card-title text-lg">Vizuális beállítások</h3>
+                  
+                  <div className="form-control">
+                    <label className="label">
+                      <span className="label-text">Forgatás</span>
+                    </label>
+                <select
                   value={rotation}
                   onChange={(e) => setRotation(Number(e.target.value))}
+                      className="select select-bordered select-sm"
                 >
                   <option value={0}>0°</option>
                   <option value={90}>90°</option>
@@ -404,112 +905,27 @@ const JoinRoom: React.FC = () => {
                   <option value={270}>270°</option>
                 </select>
               </div>
-              <div className="form-control mb-4">
-                <label className="label"><span className="label-text">Flip</span></label>
+
+                  <div className="form-control">
+                    <label className="label">
+                      <span className="label-text">Tükrözés</span>
+                    </label>
                 <select
-                  className="select select-bordered w-full"
                   value={flip}
                   onChange={(e) => setFlip(e.target.value as 'none' | 'horizontal' | 'vertical')}
-                >
-                  <option value="none">None</option>
-                  <option value="horizontal">Horizontal</option>
-                  <option value="vertical">Vertical</option>
+                      className="select select-bordered select-sm"
+                    >
+                      <option value="none">Nincs</option>
+                      <option value="horizontal">Vízszintes</option>
+                      <option value="vertical">Függőleges</option>
                 </select>
+                  </div>
+                </div>
               </div>
-              <button className="btn btn-primary w-full" onClick={startCamera} disabled={isLoading}>
-                Start Camera
-              </button>
-            </>
-          ) : (
-            <>
-              <video
-                ref={videoRef}
-                autoPlay
-                playsInline
-                className="w-full rounded-lg mb-4"
-                style={{
-                  transform: `rotate(${rotation}deg) ${flip === 'horizontal' ? 'scaleX(-1)' : ''} ${flip === 'vertical' ? 'scaleY(-1)' : ''}`,
-                }}
-              />
-              <div className="form-control mb-4">
-                <label className="label"><span className="label-text">FPS</span></label>
-                <input
-                  type="range"
-                  min={15}
-                  max={60}
-                  value={fps}
-                  className="range range-primary"
-                  onChange={(e) => setFps(Number(e.target.value))}
-                />
-                <div className="text-center">{fps} FPS</div>
-              </div>
-              <div className="form-control mb-4">
-                <label className="label"><span className="label-text">Bitrate (kbps)</span></label>
-                <input
-                  type="range"
-                  min={500}
-                  max={5000}
-                  value={bitrate}
-                  className="range range-primary"
-                  onChange={(e) => setBitrate(Number(e.target.value))}
-                />
-                <div className="text-center">{bitrate} kbps</div>
-              </div>
-              <div className="form-control mb-4">
-                <label className="label"><span className="label-text">Kamera</span></label>
-                <select
-                  className="select select-bordered w-full"
-                  value={deviceId}
-                  onChange={(e) => {
-                    setDeviceId(e.target.value);
-                    updateStream();
-                  }}
-                >
-                  {videoDevices.map((device) => (
-                    <option key={device.deviceId} value={device.deviceId}>
-                      {getCameraLabel(device)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="form-control mb-4">
-                <label className="label"><span className="label-text">Rotation</span></label>
-                <select
-                  className="select select-bordered w-full"
-                  value={rotation}
-                  onChange={(e) => setRotation(Number(e.target.value))}
-                >
-                  <option value={0}>0°</option>
-                  <option value={90}>90°</option>
-                  <option value={180}>180°</option>
-                  <option value={270}>270°</option>
-                </select>
-              </div>
-              <div className="form-control mb-4">
-                <label className="label"><span className="label-text">Flip</span></label>
-                <select
-                  className="select select-bordered w-full"
-                  value={flip}
-                  onChange={(e) => setFlip(e.target.value as 'none' | 'horizontal' | 'vertical')}
-                >
-                  <option value="none">None</option>
-                  <option value="horizontal">Horizontal</option>
-                  <option value="vertical">Vertical</option>
-                </select>
-              </div>
-              <button className="btn btn-primary w-full mb-2" onClick={updateStream} disabled={isLoading}>
-                Update Settings
-              </button>
-              <button className="btn btn-secondary w-full mb-2" onClick={refreshVideo} disabled={isLoading}>
-                Refresh Video
-              </button>
-              <button className="btn btn-error w-full" onClick={leaveRoom} disabled={isLoading}>
-                Leave Call
-              </button>
-            </>
+            </div>
+          </div>
           )}
         </div>
-      )}
     </div>
   );
 };

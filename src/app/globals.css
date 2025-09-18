@@ -1,2 +1,16 @@
 @import "tailwindcss";
-@plugin"daisyui";
+@plugin "daisyui";
+
+.form-control{
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+    width: 100%;
+    max-width: 300px;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    margin-left: auto;
+    margin-right: auto;
+}
