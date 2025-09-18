@@ -1,4 +1,4 @@
-# TStream - Wireless Camera Streaming Platform
+# tStream - Wireless Camera Streaming Platform
 
 A real-time wireless camera streaming platform built with Next.js, Socket.io, and WebRTC. Stream camera feeds from any device wirelessly to a central admin dashboard with full control and OBS integration.
 
@@ -47,7 +47,7 @@ A real-time wireless camera streaming platform built with Next.js, Socket.io, an
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/yourusername/tstream.git
+   git clone https://github.com/tomkoooo/tstream.git
    cd tstream
    ```
 
@@ -262,9 +262,9 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 📞 Support
 
-- 🐛 **Bug Reports**: [Open an issue](https://github.com/yourusername/tstream/issues)
-- 💡 **Feature Requests**: [Start a discussion](https://github.com/yourusername/tstream/discussions)
-- 📧 **Contact**: your.email@example.com
+- 🐛 **Bug Reports**: [Open an issue](https://github.com/tomkoooo/tstream/issues)
+- 💡 **Feature Requests**: [Start a discussion](https://github.com/tomkoooo/tstream/discussions)
+- 📧 **Contact**: toth.tamas@sironic.hu
 
 ---
 
