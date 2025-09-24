@@ -3,6 +3,16 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import io, { Socket } from 'socket.io-client';
 import { useParams, useSearchParams } from 'next/navigation';
+import { 
+  IconVideo, 
+  IconRefresh,
+  IconEye,
+  IconEyeOff,
+  IconMaximize,
+  IconPlayerStop,
+  IconSettings,
+  IconArrowLeft
+} from '@tabler/icons-react';
 
 interface StreamStats {
   fps: number;
@@ -447,35 +457,47 @@ const SingleCameraView: React.FC = () => {
   return (
     <div className="min-h-screen bg-black flex flex-col">
       
-      {/* Header - csak hibák esetén látható */}
+      {/* Header - Only visible when there are errors or loading */}
       {(error || isLoading) && (
-        <div className="bg-base-100 p-4 shadow-lg">
+        <div className="bg-base-100 p-4 shadow-lg border-b border-base-300">
           <div className="container mx-auto">
-            <h1 className="text-xl font-bold mb-2">
-              Kamera Nézet - {participantId?.slice(0, 8)}
-            </h1>
+            <div className="flex items-center justify-between mb-3">
+              <h1 className="text-xl font-bold flex items-center gap-2">
+                <IconVideo className="w-5 h-5 text-primary" />
+                Camera View - {participantId?.slice(0, 8)}
+              </h1>
+              <button 
+                onClick={() => window.history.back()}
+                className="btn btn-ghost btn-sm"
+              >
+                <IconArrowLeft className="w-4 h-4" />
+                Back
+              </button>
+            </div>
             
             {error && (
-              <div className="alert alert-error mb-2">
+              <div className="alert alert-error mb-3">
+                <IconRefresh className="w-5 h-5" />
                 <span>{error}</span>
                 {autoReconnect && reconnectAttempts < maxReconnectAttempts && (
-                  <button onClick={reconnect} className="btn btn-sm btn-outline">
-                    Újracsatlakozás
+                  <button onClick={reconnect} className="btn btn-sm btn-outline ml-2">
+                    <IconRefresh className="w-4 h-4 mr-1" />
+                    Reconnect
                   </button>
                 )}
               </div>
             )}
             
             {isLoading && (
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-3">
                 <span className="loading loading-spinner loading-sm"></span>
                 <span>
-                  {!socketRef.current?.connected ? 'Csatlakozás a szerverhez...' :
-                   !isConnected ? 'Várakozás a stream-re...' : 'Csatlakozás...'}
+                  {!socketRef.current?.connected ? 'Connecting to server...' :
+                   !isConnected ? 'Waiting for stream...' : 'Connecting...'}
                 </span>
                 {reconnectAttempts > 0 && (
                   <span className="text-sm opacity-70">
-                    (Kísérlet: {reconnectAttempts}/{maxReconnectAttempts})
+                    (Attempt: {reconnectAttempts}/{maxReconnectAttempts})
                   </span>
                 )}
               </div>
@@ -497,58 +519,94 @@ const SingleCameraView: React.FC = () => {
           }}
         />
         
-        {/* No video overlay */}
+        {/* No Video Overlay */}
         {!isConnected && !isLoading && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/80">
             <div className="text-center text-white">
-              <div className="text-6xl mb-4">📷</div>
-              <h2 className="text-2xl font-bold mb-2">Nincs videó stream</h2>
-              <p className="text-lg opacity-70 mb-4">
-                Várakozás a streamre: {participantId?.slice(0, 8)}
+              <div className="flex justify-center mb-6">
+                <div className="p-4 rounded-full bg-primary/20">
+                  <IconVideo className="w-16 h-16 text-primary" />
+                </div>
+              </div>
+              <h2 className="text-2xl font-bold mb-3">No Video Stream</h2>
+              <p className="text-lg opacity-70 mb-6">
+                Waiting for stream from: {participantId?.slice(0, 8)}
               </p>
-              <button onClick={reconnect} className="btn btn-primary">
-                Újracsatlakozás
+              <button onClick={reconnect} className="btn btn-primary btn-lg">
+                <IconRefresh className="w-5 h-5 mr-2" />
+                Reconnect
               </button>
             </div>
           </div>
         )}
 
-        {/* Stats overlay */}
+        {/* Stats Overlay */}
         {showStats && isConnected && (
-          <div className="absolute top-4 left-4 bg-black/80 text-white p-4 rounded-lg font-mono text-sm">
-            <h3 className="font-bold mb-2">Stream Statisztikák</h3>
-            <div className="space-y-1">
-              <div>FPS: {streamStats.fps.toFixed(1)}</div>
-              <div>Bitrate: {streamStats.bitrate.toFixed(0)} kbps</div>
-              <div>Dropped Frames: {streamStats.droppedFrames}</div>
-              <div>Packet Loss: {streamStats.packetLoss.toFixed(1)}%</div>
-              <div>Participant: {participantId?.slice(0, 8)}</div>
-              <div>Room: {roomId}</div>
+          <div className="absolute top-4 left-4 bg-black/90 text-white p-4 rounded-lg font-mono text-sm border border-white/20">
+            <div className="flex items-center gap-2 mb-3">
+              <IconSettings className="w-4 h-4" />
+              <h3 className="font-bold">Stream Statistics</h3>
+            </div>
+            <div className="space-y-2">
+              <div className="flex justify-between">
+                <span>FPS:</span>
+                <span className="text-primary">{streamStats.fps.toFixed(1)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Bitrate:</span>
+                <span className="text-secondary">{streamStats.bitrate.toFixed(0)} kbps</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Dropped Frames:</span>
+                <span className="text-warning">{streamStats.droppedFrames}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Packet Loss:</span>
+                <span className="text-error">{streamStats.packetLoss.toFixed(1)}%</span>
+              </div>
+              <div className="divider my-2"></div>
+              <div className="text-xs opacity-70">
+                <div>Participant: {participantId?.slice(0, 8)}</div>
+                <div>Room: {roomId}</div>
+              </div>
             </div>
           </div>
         )}
 
-        {/* Connection status */}
+        {/* Connection Status */}
         <div className="absolute top-4 right-4">
-          <div className={`badge ${isConnected ? 'badge-success' : 'badge-error'}`}>
-            {isConnected ? '🟢 Kapcsolódva' : '🔴 Kapcsolat megszakadt'}
+          <div className={`badge ${isConnected ? 'badge-success' : 'badge-error'} gap-1`}>
+            <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-success' : 'bg-error'}`}></div>
+            {isConnected ? 'Connected' : 'Disconnected'}
           </div>
         </div>
 
-        {/* Controls overlay */}
-        <div className="absolute bottom-4 right-4 bg-black/80 text-white p-3 rounded-lg text-xs">
-          <div className="space-y-1">
-            <div><kbd className="kbd kbd-xs">S</kbd> - Statisztikák</div>
-            <div><kbd className="kbd kbd-xs">F</kbd> - Fullscreen</div>
-            <div><kbd className="kbd kbd-xs">R</kbd> - Újracsatlakozás</div>
+        {/* Controls Overlay */}
+        <div className="absolute bottom-4 right-4 bg-black/90 text-white p-4 rounded-lg text-xs border border-white/20">
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <kbd className="kbd kbd-xs">S</kbd>
+              <span>Toggle Stats</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <kbd className="kbd kbd-xs">F</kbd>
+              <span>Fullscreen</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <kbd className="kbd kbd-xs">R</kbd>
+              <span>Reconnect</span>
+            </div>
           </div>
         </div>
 
-        {/* Settings panel - csak debug módban */}
+        {/* Debug Settings Panel - Only in development */}
         {process.env.NODE_ENV === 'development' && (
-          <div className="absolute bottom-4 left-4 bg-black/80 text-white p-3 rounded-lg text-xs">
-            <h4 className="font-bold mb-2">Debug Beállítások</h4>
-            <div className="space-y-2">
+          <div className="absolute bottom-4 left-4 bg-black/90 text-white p-4 rounded-lg text-xs border border-white/20">
+            <div className="flex items-center gap-2 mb-3">
+              <IconSettings className="w-4 h-4" />
+              <h4 className="font-bold">Debug Settings</h4>
+            </div>
+            <div className="space-y-3">
               <label className="flex items-center gap-2">
                 <input
                   type="checkbox"
@@ -556,7 +614,7 @@ const SingleCameraView: React.FC = () => {
                   onChange={(e) => setShowStats(e.target.checked)}
                   className="checkbox checkbox-xs"
                 />
-                Statisztikák megjelenítése
+                Show Statistics
               </label>
               <label className="flex items-center gap-2">
                 <input
@@ -565,19 +623,26 @@ const SingleCameraView: React.FC = () => {
                   onChange={(e) => setAutoReconnect(e.target.checked)}
                   className="checkbox checkbox-xs"
                 />
-                Automatikus újracsatlakozás
+                Auto Reconnect
               </label>
               <button onClick={reconnect} className="btn btn-xs btn-primary w-full">
-                Manuális újracsatlakozás
+                <IconRefresh className="w-3 h-3 mr-1" />
+                Manual Reconnect
               </button>
             </div>
           </div>
         )}
       </div>
 
-      {/* OBS Browser Source info */}
-      <div className="bg-base-100/5 text-white/70 text-center p-2 text-xs">
-        OBS Browser Source URL: {typeof window !== 'undefined' ? window.location.href : 'Loading...'}
+      {/* OBS Browser Source Info */}
+      <div className="bg-base-100/10 text-white/70 text-center p-3 text-xs border-t border-white/10">
+        <div className="flex items-center justify-center gap-2">
+          <IconVideo className="w-4 h-4" />
+          <span>OBS Browser Source URL:</span>
+        </div>
+        <div className="font-mono text-xs mt-1 opacity-80">
+          {typeof window !== 'undefined' ? window.location.href : 'Loading...'}
+        </div>
       </div>
     </div>
   );

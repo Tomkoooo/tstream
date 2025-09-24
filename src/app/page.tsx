@@ -2,7 +2,21 @@
 
 import { useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import io from 'socket.io-client';
+import { 
+  IconVideo, 
+  IconUsers, 
+  IconSettings, 
+  IconBroadcast, 
+  IconCamera, 
+  IconMicrophone,
+  IconArrowRight,
+  IconLogin,
+  IconPlus,
+  IconShield,
+  IconEye,
+  IconRefresh
+} from '@tabler/icons-react';
+import ThemeSwitcher from '@/components/ThemeSwitcher';
 
 const HomePage: React.FC = () => {
   const router = useRouter();
@@ -70,29 +84,50 @@ const HomePage: React.FC = () => {
   }, [joinRoomId, router]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-primary/10 to-secondary/10">
+    <div className="min-h-screen bg-base-100">
+      {/* Navigation */}
+      <div className="navbar bg-base-200 shadow-sm">
+        <div className="navbar-start">
+          <div className="flex items-center gap-2">
+            <IconVideo className="w-8 h-8 text-primary" />
+            <span className="text-xl font-bold">tStream</span>
+          </div>
+        </div>
+        <div className="navbar-end">
+          <ThemeSwitcher />
+        </div>
+      </div>
+
       <div className="container mx-auto px-4 py-8">
         
-        {/* Header */}
-        <div className="text-center mb-12">
-          <h1 className="text-5xl font-bold text-primary mb-4">
-            🎥 TStream
+        {/* Hero Section */}
+        <div className="text-center mb-16">
+          <div className="flex justify-center mb-6">
+            <div className="p-4 rounded-full bg-primary/10">
+              <IconBroadcast className="w-16 h-16 text-primary" />
+            </div>
+          </div>
+          <h1 className="text-5xl font-bold mb-6">
+            Wireless Camera 
+            <span className="text-primary"> Streaming</span>
           </h1>
-          <p className="text-xl text-base-content/70 max-w-2xl mx-auto">
-            Vezeték nélküli kamera streaming platform OBS integrációval. 
-            Könnyen streamelj bármilyen eszközről központi helyre.
+          <p className="text-xl text-base-content/70 max-w-3xl mx-auto leading-relaxed">
+            Professional wireless camera streaming platform with OBS integration. 
+            Stream from any device to a central control dashboard with real-time management.
           </p>
         </div>
 
-        {/* Hibaüzenetek */}
+        {/* Alerts */}
         {error && (
           <div className="alert alert-error mb-6 max-w-2xl mx-auto">
+            <IconRefresh className="w-5 h-5" />
             <span>{error}</span>
           </div>
         )}
 
         {success && (
           <div className="alert alert-success mb-6 max-w-2xl mx-auto">
+            <IconEye className="w-5 h-5" />
             <span>{success}</span>
           </div>
         )}
@@ -106,50 +141,55 @@ const HomePage: React.FC = () => {
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 max-w-6xl mx-auto">
           
-          {/* Szoba létrehozása */}
-          <div className="card bg-base-100 shadow-2xl">
+          {/* Create Room */}
+          <div className="card bg-base-100 shadow-xl border border-base-300">
             <div className="card-body">
-              <h2 className="card-title text-2xl mb-6 justify-center">
-                🎬 Új szoba létrehozása
-              </h2>
+              <div className="flex items-center gap-3 mb-6">
+                <div className="p-2 rounded-lg bg-primary/10">
+                  <IconPlus className="w-6 h-6 text-primary" />
+                </div>
+                <h2 className="card-title text-2xl">
+                  Create New Room
+                </h2>
+              </div>
               
-              <div className="space-y-4">
+              <div className="space-y-6">
                 <div className="form-control">
                   <label className="label">
-                    <span className="label-text font-medium">Szoba neve</span>
+                    <span className="label-text font-medium">Room Name</span>
                   </label>
                   <input
                     type="text"
                     value={roomName}
                     onChange={(e) => setRoomName(e.target.value)}
                     className="input input-bordered input-lg"
-                    placeholder="pl. Stúdió kamerák, Esemény stream..."
+                    placeholder="e.g. Studio Cameras, Event Stream..."
                     disabled={isLoading}
                     maxLength={50}
                   />
                   <label className="label">
                     <span className="label-text-alt text-base-content/60">
-                      {roomName.length}/50 karakter
+                      {roomName.length}/50 characters
                     </span>
                   </label>
                 </div>
 
                 <div className="form-control">
                   <label className="label">
-                    <span className="label-text font-medium">Jelszó</span>
+                    <span className="label-text font-medium">Password</span>
                   </label>
                   <input
                     type="password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     className="input input-bordered input-lg"
-                    placeholder="Minimum 4 karakter"
+                    placeholder="Minimum 4 characters"
                     disabled={isLoading}
                     maxLength={20}
                   />
                   <label className="label">
                     <span className="label-text-alt text-base-content/60">
-                      Ez lesz szükséges a csatlakozáshoz
+                      Required for participants to join
                     </span>
                   </label>
                 </div>
@@ -164,56 +204,62 @@ const HomePage: React.FC = () => {
                   {isLoading ? (
                     <>
                       <span className="loading loading-spinner loading-sm"></span>
-                      Létrehozás...
+                      Creating...
                     </>
                   ) : (
                     <>
-                      Szoba létrehozása
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
-                      </svg>
+                      Create Room
+                      <IconArrowRight className="w-5 h-5" />
                     </>
                   )}
                 </button>
               </div>
 
-              <div className="mt-6 p-4 bg-info/10 rounded-lg">
-                <h3 className="font-bold text-info mb-2">💡 Admin funkciók:</h3>
+              <div className="mt-6 p-4 bg-info/10 rounded-lg border border-info/20">
+                <div className="flex items-center gap-2 mb-3">
+                  <IconSettings className="w-5 h-5 text-info" />
+                  <h3 className="font-bold text-info">Admin Features:</h3>
+                </div>
                 <ul className="text-sm space-y-1 text-base-content/80">
-                  <li>• Résztvevők kezelése és kirúgása</li>
-                  <li>• Fullscreen nézet és egyedi kamera nézetek</li>
-                  <li>• Hang forrás kiválasztása</li>
-                  <li>• Stream statisztikák valós időben</li>
-                  <li>• OBS Browser Source integráció</li>
+                  <li>• Participant management and kick functionality</li>
+                  <li>• Fullscreen view and individual camera views</li>
+                  <li>• Audio source selection</li>
+                  <li>• Real-time stream statistics</li>
+                  <li>• OBS Browser Source integration</li>
                 </ul>
               </div>
             </div>
           </div>
 
-          {/* Csatlakozás meglévő szobához */}
-          <div className="card bg-base-100 shadow-2xl">
+          {/* Join Room */}
+          <div className="card bg-base-100 shadow-xl border border-base-300">
             <div className="card-body">
-              <h2 className="card-title text-2xl mb-6 justify-center">
-                📱 Csatlakozás szobához
-              </h2>
+              <div className="flex items-center gap-3 mb-6">
+                <div className="p-2 rounded-lg bg-secondary/10">
+                  <IconLogin className="w-6 h-6 text-secondary" />
+                </div>
+                <h2 className="card-title text-2xl">
+                  Join Existing Room
+                </h2>
+              </div>
               
-              <div className="space-y-4">
+              <div className="space-y-6">
                 <div className="form-control">
                   <label className="label">
-                    <span className="label-text font-medium">Szoba ID</span>
+                    <span className="label-text font-medium">Room ID</span>
                   </label>
                   <input
                     type="text"
                     value={joinRoomId}
                     onChange={(e) => setJoinRoomId(e.target.value.toLowerCase())}
                     className="input input-bordered input-lg"
-                    placeholder="pl. abc123xy"
+                    placeholder="e.g. abc123xy"
                     disabled={isLoading}
                     maxLength={20}
                   />
                   <label className="label">
                     <span className="label-text-alt text-base-content/60">
-                      Add meg a szoba egyedi azonosítóját
+                      Enter the unique room identifier
                     </span>
                   </label>
                 </div>
@@ -225,127 +271,205 @@ const HomePage: React.FC = () => {
                   disabled={isLoading || !joinRoomId.trim()}
                   className="btn btn-secondary btn-lg btn-wide"
                 >
-                  Csatlakozás
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1" />
-                  </svg>
+                  Join Room
+                  <IconLogin className="w-5 h-5" />
                 </button>
               </div>
 
-              <div className="mt-6 p-4 bg-success/10 rounded-lg">
-                <h3 className="font-bold text-success mb-2">📹 Streaming funkciók:</h3>
+              <div className="mt-6 p-4 bg-success/10 rounded-lg border border-success/20">
+                <div className="flex items-center gap-2 mb-3">
+                  <IconCamera className="w-5 h-5 text-success" />
+                  <h3 className="font-bold text-success">Streaming Features:</h3>
+                </div>
                 <ul className="text-sm space-y-1 text-base-content/80">
-                  <li>• Kamera és mikrofon kiválasztása</li>
-                  <li>• Felbontás, FPS és bitráta beállítások</li>
-                  <li>• Kép forgatása és tükrözése</li>
-                  <li>• Valós idejű stream beállítások</li>
-                  <li>• Stabil WebRTC kapcsolat</li>
+                  <li>• Camera and microphone selection</li>
+                  <li>• Resolution, FPS and bitrate settings</li>
+                  <li>• Image rotation and flipping</li>
+                  <li>• Real-time stream configuration</li>
+                  <li>• Stable WebRTC connection</li>
                 </ul>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Funkciók bemutatása */}
-        <div className="mt-16">
-          <h2 className="text-3xl font-bold text-center mb-12">
-            ✨ Főbb funkciók
-          </h2>
+        {/* Features Section */}
+        <div className="mt-20">
+          <div className="text-center mb-16">
+            <h2 className="text-4xl font-bold mb-4">
+              Key Features
+            </h2>
+            <p className="text-lg text-base-content/70 max-w-2xl mx-auto">
+              Everything you need for professional wireless camera streaming
+            </p>
+          </div>
           
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-6xl mx-auto">
             
-            <div className="card bg-base-100 shadow-xl">
+            <div className="card bg-base-100 shadow-xl border border-base-300 hover:shadow-2xl transition-shadow">
               <div className="card-body text-center">
-                <div className="text-4xl mb-4">🎥</div>
-                <h3 className="card-title justify-center mb-2">
-                  Többkamerás streaming
+                <div className="flex justify-center mb-4">
+                  <div className="p-3 rounded-full bg-primary/10">
+                    <IconVideo className="w-8 h-8 text-primary" />
+                  </div>
+                </div>
+                <h3 className="card-title justify-center mb-3">
+                  Multi-Camera Streaming
                 </h3>
                 <p className="text-base-content/70">
-                  Több eszköz egyidejű streamelése egy központi helyre. 
-                  Tökéletes eseményekhez és stúdió munkához.
+                  Stream from multiple devices simultaneously to a central location. 
+                  Perfect for events and studio work.
                 </p>
               </div>
             </div>
 
-            <div className="card bg-base-100 shadow-xl">
+            <div className="card bg-base-100 shadow-xl border border-base-300 hover:shadow-2xl transition-shadow">
               <div className="card-body text-center">
-                <div className="text-4xl mb-4">⚙️</div>
-                <h3 className="card-title justify-center mb-2">
-                  Teljes kontroll
+                <div className="flex justify-center mb-4">
+                  <div className="p-3 rounded-full bg-secondary/10">
+                    <IconSettings className="w-8 h-8 text-secondary" />
+                  </div>
+                </div>
+                <h3 className="card-title justify-center mb-3">
+                  Full Control
                 </h3>
                 <p className="text-base-content/70">
-                  Felbontás, FPS, bitráta beállítások valós időben. 
-                  Kép forgatása, tükrözése és optimalizálás.
+                  Real-time resolution, FPS, and bitrate settings. 
+                  Image rotation, flipping, and optimization.
                 </p>
               </div>
             </div>
 
-            <div className="card bg-base-100 shadow-xl">
+            <div className="card bg-base-100 shadow-xl border border-base-300 hover:shadow-2xl transition-shadow">
               <div className="card-body text-center">
-                <div className="text-4xl mb-4">📺</div>
-                <h3 className="card-title justify-center mb-2">
-                  OBS integráció
+                <div className="flex justify-center mb-4">
+                  <div className="p-3 rounded-full bg-accent/10">
+                    <IconBroadcast className="w-8 h-8 text-accent" />
+                  </div>
+                </div>
+                <h3 className="card-title justify-center mb-3">
+                  OBS Integration
                 </h3>
                 <p className="text-base-content/70">
-                  Egyedi kamera nézetek Browser Source-ként. 
-                  Könnyen beilleszthető OBS-be vagy más streaming szoftverbe.
+                  Individual camera views as Browser Sources. 
+                  Easy integration with OBS or other streaming software.
                 </p>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Technikai információk */}
-        <div className="mt-16 card bg-base-100 shadow-xl max-w-4xl mx-auto">
-          <div className="card-body">
-            <h2 className="card-title text-2xl justify-center mb-6">
-              🔧 Technikai részletek
-            </h2>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <h3 className="font-bold mb-3">Támogatott felbontások:</h3>
-                <ul className="space-y-1 text-sm">
-                  <li>• 480p (854×480)</li>
-                  <li>• 720p (1280×720) - ajánlott</li>
-                  <li>• 1080p (1920×1080)</li>
-                </ul>
+        {/* Technical Details */}
+        <div className="mt-20">
+          <div className="card bg-base-100 shadow-xl border border-base-300 max-w-5xl mx-auto">
+            <div className="card-body">
+              <div className="text-center mb-8">
+                <div className="flex justify-center mb-4">
+                  <div className="p-3 rounded-full bg-info/10">
+                    <IconSettings className="w-8 h-8 text-info" />
+                  </div>
+                </div>
+                <h2 className="text-3xl font-bold mb-2">
+                  Technical Specifications
+                </h2>
+                <p className="text-base-content/70">
+                  Professional streaming capabilities and browser compatibility
+                </p>
               </div>
               
-              <div>
-                <h3 className="font-bold mb-3">Stream beállítások:</h3>
-                <ul className="space-y-1 text-sm">
-                  <li>• FPS: 15-60 között</li>
-                  <li>• Bitráta: 500-8000 kbps</li>
-                  <li>• WebRTC P2P kapcsolat</li>
-                </ul>
-              </div>
-              
-              <div>
-                <h3 className="font-bold mb-3">Böngésző támogatás:</h3>
-                <ul className="space-y-1 text-sm">
-                  <li>• Chrome/Edge (ajánlott)</li>
-                  <li>• Firefox</li>
-                  <li>• Safari (iOS/macOS)</li>
-                </ul>
-              </div>
-              
-              <div>
-                <h3 className="font-bold mb-3">OBS Browser Source:</h3>
-                <ul className="space-y-1 text-sm">
-                  <li>• Egyedi URL minden kamerához</li>
-                  <li>• Fullscreen támogatás</li>
-                  <li>• Automatikus újracsatlakozás</li>
-                </ul>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div className="space-y-4">
+                  <div className="p-4 bg-primary/5 rounded-lg border border-primary/20">
+                    <h3 className="font-bold mb-3 text-primary">Supported Resolutions</h3>
+                    <ul className="space-y-2 text-sm">
+                      <li className="flex items-center gap-2">
+                        <div className="w-2 h-2 bg-primary rounded-full"></div>
+                        480p (854×480)
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <div className="w-2 h-2 bg-primary rounded-full"></div>
+                        720p (1280×720) - Recommended
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <div className="w-2 h-2 bg-primary rounded-full"></div>
+                        1080p (1920×1080)
+                      </li>
+                    </ul>
+                  </div>
+                  
+                  <div className="p-4 bg-secondary/5 rounded-lg border border-secondary/20">
+                    <h3 className="font-bold mb-3 text-secondary">Stream Settings</h3>
+                    <ul className="space-y-2 text-sm">
+                      <li className="flex items-center gap-2">
+                        <div className="w-2 h-2 bg-secondary rounded-full"></div>
+                        FPS: 15-60 range
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <div className="w-2 h-2 bg-secondary rounded-full"></div>
+                        Bitrate: 500-8000 kbps
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <div className="w-2 h-2 bg-secondary rounded-full"></div>
+                        WebRTC P2P connection
+                      </li>
+                    </ul>
+                  </div>
+                </div>
+                
+                <div className="space-y-4">
+                  <div className="p-4 bg-accent/5 rounded-lg border border-accent/20">
+                    <h3 className="font-bold mb-3 text-accent">Browser Support</h3>
+                    <ul className="space-y-2 text-sm">
+                      <li className="flex items-center gap-2">
+                        <div className="w-2 h-2 bg-accent rounded-full"></div>
+                        Chrome/Edge (Recommended)
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <div className="w-2 h-2 bg-accent rounded-full"></div>
+                        Firefox
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <div className="w-2 h-2 bg-accent rounded-full"></div>
+                        Safari (iOS/macOS)
+                      </li>
+                    </ul>
+                  </div>
+                  
+                  <div className="p-4 bg-info/5 rounded-lg border border-info/20">
+                    <h3 className="font-bold mb-3 text-info">OBS Browser Source</h3>
+                    <ul className="space-y-2 text-sm">
+                      <li className="flex items-center gap-2">
+                        <div className="w-2 h-2 bg-info rounded-full"></div>
+                        Unique URL for each camera
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <div className="w-2 h-2 bg-info rounded-full"></div>
+                        Fullscreen support
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <div className="w-2 h-2 bg-info rounded-full"></div>
+                        Automatic reconnection
+                      </li>
+                    </ul>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
         </div>
 
         {/* Footer */}
-        <div className="text-center mt-16 text-base-content/60">
-          <p>© 2024 TStream - Vezeték nélküli kamera streaming platform</p>
-        </div>
+        <footer className="footer footer-center p-10 bg-base-200 text-base-content mt-20">
+          <div>
+            <div className="flex items-center gap-2 mb-4">
+              <IconVideo className="w-6 h-6 text-primary" />
+              <span className="text-lg font-bold">tStream</span>
+            </div>
+            <p className="text-base-content/70">
+              © 2024 tStream - Wireless Camera Streaming Platform
+            </p>
+          </div>
+        </footer>
       </div>
     </div>
   );

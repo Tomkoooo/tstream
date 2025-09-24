@@ -3,6 +3,20 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import io, { Socket } from 'socket.io-client';
 import { useParams } from 'next/navigation';
+import { 
+  IconVideo, 
+  IconCamera, 
+  IconMicrophone,
+  IconSettings,
+  IconPlayerPlay,
+  IconPlayerStop,
+  IconRefresh,
+  IconLogout,
+  IconRotate,
+  IconFlipHorizontal,
+  IconFlipVertical,
+  IconArrowLeft
+} from '@tabler/icons-react';
 
 interface Participant {
   id: string;
@@ -605,85 +619,134 @@ const JoinRoom: React.FC = () => {
 
   // Render
   return (
-    <div className="min-h-screen bg-base-200 p-4">
-      <div className="container mx-auto max-w-4xl">
-        <div className="text-center mb-6">
-          <h1 className="text-3xl font-bold text-primary mb-2">
-            Csatlakozás szobához
+    <div className="min-h-screen bg-base-100">
+      {/* Navigation */}
+      <div className="navbar bg-base-200 shadow-sm">
+        <div className="navbar-start">
+          <button 
+            onClick={() => window.history.back()}
+            className="btn btn-ghost btn-sm"
+          >
+            <IconArrowLeft className="w-4 h-4" />
+            Back
+          </button>
+        </div>
+        <div className="navbar-center">
+          <div className="flex items-center gap-2">
+            <IconVideo className="w-6 h-6 text-primary" />
+            <span className="text-lg font-bold">tStream</span>
+          </div>
+        </div>
+        <div className="navbar-end">
+          <div className="badge badge-primary">Room: {roomId}</div>
+        </div>
+      </div>
+
+      <div className="container mx-auto max-w-6xl p-4">
+        <div className="text-center mb-8">
+          <h1 className="text-4xl font-bold mb-2">
+            Join Room
           </h1>
-          <p className="text-base-content/70">Szoba ID: {roomId}</p>
+          <p className="text-base-content/70">Room ID: {roomId}</p>
         </div>
 
-        {/* Hibaüzenetek */}
+        {/* Alerts */}
         {error && (
-          <div className="alert alert-error mb-4">
+          <div className="alert alert-error mb-6">
+            <IconRefresh className="w-5 h-5" />
             <span>{error}</span>
           </div>
         )}
 
         {success && (
-          <div className="alert alert-success mb-4">
+          <div className="alert alert-success mb-6">
+            <IconVideo className="w-5 h-5" />
             <span>{success}</span>
           </div>
         )}
 
         {isWaitingForAdmin && (
-          <div className="alert alert-info mb-4">
+          <div className="alert alert-info mb-6">
             <span className="loading loading-spinner loading-sm"></span>
-            <span>Várakozás az admin csatlakozására...</span>
+            <span>Waiting for admin to connect...</span>
           </div>
         )}
 
         {/* Loading */}
         {isLoading && (
-          <div className="flex justify-center mb-4">
+          <div className="flex justify-center mb-6">
             <span className="loading loading-spinner loading-lg"></span>
           </div>
         )}
 
       {!isJoined ? (
-          /* Csatlakozási form */
-          <div className="card bg-base-100 shadow-xl max-w-md mx-auto">
+          /* Join Form */
+          <div className="card bg-base-100 shadow-xl border border-base-300 max-w-md mx-auto">
             <div className="card-body">
-              <h2 className="card-title justify-center mb-4">Belépés</h2>
+              <div className="flex items-center gap-3 mb-6">
+                <div className="p-2 rounded-lg bg-primary/10">
+                  <IconVideo className="w-6 h-6 text-primary" />
+                </div>
+                <h2 className="card-title text-xl">Join Room</h2>
+              </div>
               
               <div className="form-control">
                 <label className="label">
-                  <span className="label-text">Szoba jelszava</span>
+                  <span className="label-text font-medium">Room Password</span>
                 </label>
           <input
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-                  className="input input-bordered"
-                  placeholder="Add meg a jelszót"
+                  className="input input-bordered input-lg"
+            placeholder="Enter room password"
             disabled={isLoading}
                   onKeyPress={(e) => e.key === 'Enter' && joinRoom()}
                 />
-              </div>
+                <label className="label">
+                  <span className="label-text-alt text-base-content/60">
+                    Required to join this room
+                  </span>
+                </label>
+        </div>
 
-              <div className="card-actions justify-center mt-4">
+              <div className="card-actions justify-center mt-6">
                 <button
                   onClick={joinRoom}
                   disabled={isLoading || !password.trim()}
-                  className="btn btn-primary btn-wide"
+                  className="btn btn-primary btn-lg btn-wide"
                 >
-                  Csatlakozás
+                  {isLoading ? (
+                    <>
+                      <span className="loading loading-spinner loading-sm"></span>
+                      Joining...
+                    </>
+                  ) : (
+                    <>
+                      Join Room
+                      <IconVideo className="w-5 h-5" />
+                    </>
+                  )}
                 </button>
               </div>
             </div>
           </div>
         ) : (
-          /* Streaming interfész */
+          /* Streaming Interface */
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             
-            {/* Video előnézet */}
+            {/* Video Preview */}
             <div className="lg:col-span-2">
-              <div className="card bg-base-100 shadow-xl">
+              <div className="card bg-base-100 shadow-xl border border-base-300">
                 <div className="card-body">
-                  <h2 className="card-title mb-4">
-                    {isStreaming ? 'Élő stream' : 'Kamera előnézet'}
-                  </h2>
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="p-2 rounded-lg bg-primary/10">
+                      <IconCamera className="w-5 h-5 text-primary" />
+                    </div>
+                    <h2 className="card-title">
+                      {isStreaming ? 'Live Stream' : 'Camera Preview'}
+                    </h2>
+                  </div>
                   
                   <div className="relative bg-black rounded-lg overflow-hidden">
                     <video
@@ -702,30 +765,34 @@ const JoinRoom: React.FC = () => {
                     {!isStreaming && (
                       <div className="absolute inset-0 flex items-center justify-center bg-black/50">
                         <div className="text-center text-white">
-                          <p className="text-lg mb-2">Stream nincs elindítva</p>
+                          <IconCamera className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                          <p className="text-lg mb-2">Stream not started</p>
                           <p className="text-sm opacity-75">
-                            Állítsd be a beállításokat és indítsd el a streamet
+                            Configure settings and start streaming
                           </p>
                         </div>
                       </div>
                     )}
                   </div>
 
-                  {/* Stream vezérlők */}
-                  <div className="flex gap-2 mt-4">
+                  {/* Stream Controls */}
+                  <div className="flex flex-wrap gap-2 mt-4">
                     {!isStreaming ? (
                       <button
                         onClick={startStream}
                         disabled={isLoading}
-                        className="btn btn-success flex-1"
+                        className="btn btn-success flex-1 min-w-0"
                       >
                         {isLoading ? (
                           <>
                             <span className="loading loading-spinner loading-sm"></span>
-                            Indítás...
+                            Starting...
                           </>
                         ) : (
-                          'Stream indítása'
+                          <>
+                            <IconPlayerPlay className="w-4 h-4" />
+                            Start Stream
+                          </>
                         )}
                       </button>
                     ) : (
@@ -733,15 +800,18 @@ const JoinRoom: React.FC = () => {
                         <button
                           onClick={stopStream}
                           disabled={isLoading}
-                          className="btn btn-error flex-1"
+                          className="btn btn-error flex-1 min-w-0"
                         >
                           {isLoading ? (
                             <>
                               <span className="loading loading-spinner loading-sm"></span>
-                              Leállítás...
+                              Stopping...
                             </>
                           ) : (
-                            'Stream leállítása'
+                          <>
+                            <IconPlayerStop className="w-4 h-4" />
+                            Stop Stream
+                          </>
                           )}
                         </button>
                         <button
@@ -749,7 +819,8 @@ const JoinRoom: React.FC = () => {
                           disabled={isLoading}
                           className="btn btn-warning"
                         >
-                          Beállítások frissítése
+                          <IconRefresh className="w-4 h-4" />
+                          Update Settings
                         </button>
                       </>
                     )}
@@ -758,47 +829,51 @@ const JoinRoom: React.FC = () => {
                       onClick={leaveRoom}
                       className="btn btn-outline btn-error"
                     >
-                      Szoba elhagyása
+                      <IconLogout className="w-4 h-4" />
+                      Leave Room
                     </button>
                   </div>
                 </div>
               </div>
             </div>
 
-            {/* Beállítások panel */}
+            {/* Settings Panel */}
             <div className="space-y-4">
               
-              {/* Eszköz kiválasztás */}
-              <div className="card bg-base-100 shadow-xl">
+              {/* Device Selection */}
+              <div className="card bg-base-100 shadow-xl border border-base-300">
                 <div className="card-body">
-                  <h3 className="card-title text-lg">Eszközök</h3>
+                  <div className="flex items-center gap-2 mb-4">
+                    <IconSettings className="w-5 h-5 text-primary" />
+                    <h3 className="card-title text-lg">Devices</h3>
+                  </div>
                   
                   <div className="form-control">
                     <label className="label">
-                      <span className="label-text">Kamera</span>
+                      <span className="label-text font-medium">Camera</span>
                     </label>
-                <select
+                    <select
                       value={selectedVideoDevice}
                       onChange={(e) => setSelectedVideoDevice(e.target.value)}
-                      className="select select-bordered select-sm"
+                      className="select select-bordered"
                       disabled={isStreaming}
                     >
                       {videoDevices.map(device => (
-                    <option key={device.deviceId} value={device.deviceId}>
+                        <option key={device.deviceId} value={device.deviceId}>
                           {device.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
+                        </option>
+                      ))}
+                    </select>
+                  </div>
 
                   <div className="form-control">
                     <label className="label">
-                      <span className="label-text">Mikrofon</span>
+                      <span className="label-text font-medium">Microphone</span>
                     </label>
-                <select
+                    <select
                       value={selectedAudioDevice}
                       onChange={(e) => setSelectedAudioDevice(e.target.value)}
-                      className="select select-bordered select-sm"
+                      className="select select-bordered"
                       disabled={isStreaming}
                     >
                       {audioDevices.map(device => (
@@ -806,71 +881,74 @@ const JoinRoom: React.FC = () => {
                           {device.label}
                         </option>
                       ))}
-                </select>
+                    </select>
                   </div>
                 </div>
               </div>
 
-              {/* Stream beállítások */}
-              <div className="card bg-base-100 shadow-xl">
+              {/* Stream Settings */}
+              <div className="card bg-base-100 shadow-xl border border-base-300">
                 <div className="card-body">
-                  <h3 className="card-title text-lg">Stream beállítások</h3>
+                  <div className="flex items-center gap-2 mb-4">
+                    <IconVideo className="w-5 h-5 text-secondary" />
+                    <h3 className="card-title text-lg">Stream Settings</h3>
+                  </div>
                   
                   <div className="form-control">
                     <label className="label">
-                      <span className="label-text">Felbontás</span>
+                      <span className="label-text font-medium">Resolution</span>
                     </label>
-                <select
+                    <select
                       value={streamSettings.resolution}
                       onChange={(e) => setStreamSettings(prev => ({
                         ...prev,
                         resolution: e.target.value as '480p' | '720p' | '1080p'
                       }))}
-                      className="select select-bordered select-sm"
+                      className="select select-bordered"
                     >
                       <option value="480p">480p (854×480)</option>
                       <option value="720p">720p (1280×720)</option>
                       <option value="1080p">1080p (1920×1080)</option>
-                </select>
-              </div>
+                    </select>
+                  </div>
 
                   <div className="form-control">
                     <label className="label">
-                      <span className="label-text">FPS: {streamSettings.fps}</span>
+                      <span className="label-text font-medium">FPS: {streamSettings.fps}</span>
                     </label>
-                <input
-                  type="range"
-                  min={15}
-                  max={60}
+                    <input
+                      type="range"
+                      min={15}
+                      max={60}
                       value={streamSettings.fps}
                       onChange={(e) => setStreamSettings(prev => ({
                         ...prev,
                         fps: Number(e.target.value)
                       }))}
-                      className="range range-primary range-sm"
+                      className="range range-primary"
                     />
-              </div>
+                  </div>
 
                   <div className="form-control">
                     <label className="label">
-                      <span className="label-text">Bitráta: {streamSettings.bitrate} kbps</span>
+                      <span className="label-text font-medium">Bitrate: {streamSettings.bitrate} kbps</span>
                     </label>
-                <input
-                  type="range"
-                  min={500}
+                    <input
+                      type="range"
+                      min={500}
                       max={8000}
                       value={streamSettings.bitrate}
                       onChange={(e) => setStreamSettings(prev => ({
                         ...prev,
                         bitrate: Number(e.target.value)
                       }))}
-                      className="range range-primary range-sm"
+                      className="range range-primary"
                     />
                   </div>
 
                   <div className="form-control">
                     <label className="cursor-pointer label">
-                      <span className="label-text">Hang engedélyezése</span>
+                      <span className="label-text font-medium">Enable Audio</span>
                       <input
                         type="checkbox"
                         checked={streamSettings.audioEnabled}
@@ -885,40 +963,43 @@ const JoinRoom: React.FC = () => {
               </div>
               </div>
 
-              {/* Vizuális beállítások */}
-              <div className="card bg-base-100 shadow-xl">
+              {/* Visual Settings */}
+              <div className="card bg-base-100 shadow-xl border border-base-300">
                 <div className="card-body">
-                  <h3 className="card-title text-lg">Vizuális beállítások</h3>
+                  <div className="flex items-center gap-2 mb-4">
+                    <IconRotate className="w-5 h-5 text-accent" />
+                    <h3 className="card-title text-lg">Visual Settings</h3>
+                  </div>
                   
                   <div className="form-control">
                     <label className="label">
-                      <span className="label-text">Forgatás</span>
+                      <span className="label-text font-medium">Rotation</span>
                     </label>
-                <select
-                  value={rotation}
-                  onChange={(e) => setRotation(Number(e.target.value))}
-                      className="select select-bordered select-sm"
-                >
-                  <option value={0}>0°</option>
-                  <option value={90}>90°</option>
-                  <option value={180}>180°</option>
-                  <option value={270}>270°</option>
-                </select>
-              </div>
+                    <select
+                      value={rotation}
+                      onChange={(e) => setRotation(Number(e.target.value))}
+                      className="select select-bordered"
+                    >
+                      <option value={0}>0°</option>
+                      <option value={90}>90°</option>
+                      <option value={180}>180°</option>
+                      <option value={270}>270°</option>
+                    </select>
+                  </div>
 
                   <div className="form-control">
                     <label className="label">
-                      <span className="label-text">Tükrözés</span>
+                      <span className="label-text font-medium">Flip</span>
                     </label>
-                <select
-                  value={flip}
-                  onChange={(e) => setFlip(e.target.value as 'none' | 'horizontal' | 'vertical')}
-                      className="select select-bordered select-sm"
+                    <select
+                      value={flip}
+                      onChange={(e) => setFlip(e.target.value as 'none' | 'horizontal' | 'vertical')}
+                      className="select select-bordered"
                     >
-                      <option value="none">Nincs</option>
-                      <option value="horizontal">Vízszintes</option>
-                      <option value="vertical">Függőleges</option>
-                </select>
+                      <option value="none">None</option>
+                      <option value="horizontal">Horizontal</option>
+                      <option value="vertical">Vertical</option>
+                    </select>
                   </div>
                 </div>
               </div>
