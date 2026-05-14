@@ -1,18 +1,21 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import { Providers } from "@/components/providers";
 
-const inter = Inter({
+const geistSans = Geist({
+  variable: "--font-geist-sans",
   subsets: ["latin"],
-  variable: "--font-inter",
+});
+
+const geistMono = Geist_Mono({
+  variable: "--font-geist-mono",
+  subsets: ["latin"],
 });
 
 export const metadata: Metadata = {
-  title: "tStream - Wireless Camera Streaming Platform",
-  description: "Real-time wireless camera streaming platform with OBS integration",
-  keywords: "streaming, camera, webrtc, obs, wireless, video",
-  authors: [{ name: "TStream Team" }],
-  viewport: "width=device-width, initial-scale=1",
+  title: "tdarts stream",
+  description: "Dart tournament camera streaming for tdarts.hu",
 };
 
 export default function RootLayout({
@@ -21,9 +24,9 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" data-theme="dark">
-      <body className={`${inter.variable} font-sans antialiased`}>
-        {children}
+    <html lang="hu" className={`dark ${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
+      <body className="min-h-full flex flex-col bg-background text-foreground">
+        <Providers>{children}</Providers>
       </body>
     </html>
   );

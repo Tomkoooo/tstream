@@ -1,0 +1,26 @@
+services:
+  web:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      SESSION_PASSWORD: ${SESSION_PASSWORD:-changeme}
+      SESSION_SECRET: ${SESSION_SECRET:-devdevdevdevdevdevdevdevdev}
+      # Omit REDIS_URL to use in-memory room/camera state (no Redis container).
+      REDIS_URL: ${REDIS_URL:-}
+      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
+      ICE_SERVERS_JSON: ${ICE_SERVERS_JSON:-}
+
+# Optional Redis (e.g. `docker compose --profile redis up`):
+#   docker compose --profile redis up
+# and set REDIS_URL=redis://redis:6379 in web.environment
+  redis:
+    profiles: ["redis"]
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+
+volumes:
+  redis-data: {}

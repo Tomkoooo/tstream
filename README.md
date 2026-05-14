@@ -1,271 +1,89 @@
-# tStream - Wireless Camera Streaming Platform
+# tdarts stream
 
-A real-time wireless camera streaming platform built with Next.js, Socket.io, and WebRTC. Stream camera feeds from any device wirelessly to a central admin dashboard with full control and OBS integration.
+Staff-only web app for **tdarts.hu** tournaments: create **rooms** with join codes, stream phones as **WebRTC** publishers, monitor from an **admin dashboard**, and open **clean viewer pages** for **OBS Browser Source**.
 
-![TStream Demo](https://img.shields.io/badge/Status-Active-green) ![Next.js](https://img.shields.io/badge/Next.js-15.3.3-black) ![WebRTC](https://img.shields.io/badge/WebRTC-Enabled-blue) ![Socket.io](https://img.shields.io/badge/Socket.io-4.8.1-green)
+## Stack
 
-## ✨ Features
+- Next.js 16 (App Router) + TypeScript + Tailwind v4 + shadcn/ui (Base UI)
+- Custom **Node** entry [`server.ts`](server.ts): Next HTTP handler + **Socket.IO** signaling on the same port
+- **Rooms + camera presence**: **Redis** if `REDIS_URL` is set; otherwise an **in-memory** store in the Node process (no extra infra; see below).
+- **WebRTC** mesh: one `RTCPeerConnection` per viewer (admin tile or `/view/[cameraSessionId]`)
 
-### 🎥 **Multi-Camera Streaming**
-- Stream from unlimited devices simultaneously
-- Real-time video and audio transmission
-- Automatic quality adaptation based on network conditions
-- Support for mobile phones, tablets, laptops, and webcams
+## Quick start (local)
 
-### 🎛️ **Admin Dashboard**
-- Central control panel for all connected cameras
-- Real-time stream statistics (FPS, bitrate, packet loss)
-- Individual camera controls and settings
-- Participant management with kick functionality
+1. Copy env and edit secrets:
 
-### 🎨 **Video Controls**
-- **Transform Options**: Horizontal/vertical flip, 90° rotation
-- **Audio Selection**: Choose which camera's audio to monitor
-- **Fullscreen Mode**: Individual camera fullscreen viewing
-- **Stream Settings**: Adjustable resolution, FPS, and bitrate
-
-### 📺 **OBS Integration**
-- **Individual Camera Views**: Separate URLs for each camera
-- **Browser Source Compatible**: Direct integration with OBS Studio
-- **Transform Support**: Flip and rotation settings preserved
-- **Clean Interface**: Minimal UI for professional streaming
-
-### 🔧 **Advanced Features**
-- **WebRTC P2P**: Low-latency peer-to-peer connections
-- **Automatic Reconnection**: Handles network interruptions gracefully
-- **STUN/TURN Support**: Works behind NAT and firewalls
-- **Responsive Design**: Works on desktop and mobile devices
-
-## 🚀 Quick Start
-
-### Prerequisites
-- Node.js 18+ 
-- npm or yarn
-- Modern web browser with WebRTC support
-
-### Installation
-
-1. **Clone the repository**
    ```bash
-   git clone https://github.com/tomkoooo/tstream.git
-   cd tstream
+   cp .env.example .env.local
    ```
 
-2. **Install dependencies**
+2. **Redis (optional):** leave `REDIS_URL` unset to use the built-in in-memory store (good for one machine and quick tournaments). Set `REDIS_URL` when you need data to survive app restarts or multiple app instances.
+
+3. Install and run (uses [`server.ts`](server.ts), not `next dev` alone):
+
    ```bash
    npm install
-   ```
-
-3. **Start the development server**
-   ```bash
    npm run dev
    ```
 
-4. **Open your browser**
-   - Navigate to `http://localhost:8080`
-   - Create a room as admin
-   - Share the join link with camera devices
+4. Open `http://localhost:3000/login`, sign in with `SESSION_PASSWORD`.
 
-## 📖 Usage Guide
+5. In **Dashboard**, create a room and **Copy join URL** for phones.
 
-### 🏠 **Creating a Room**
+6. On each phone: **Camera** page → enter code (or use URL query `?code=`) → **Start** (preview can use **Black** / **Dim**; outgoing video stays full quality).
 
-1. Go to the main page
-2. Click "Create Room"
-3. Set room name and password
-4. Share the generated link with participants
+7. For OBS: open **Open viewer (OBS)** from the dashboard, or `/view/<cameraSessionId>` in a Browser Source (toggle HUD if you want a chromeless capture).
 
-### 📱 **Joining as a Camera**
+## Environment variables
 
-1. Open the shared link on your device
-2. Enter the room password
-3. Allow camera and microphone access
-4. Configure stream settings (resolution, FPS, bitrate)
-5. Click "Start Streaming"
+- **`SESSION_PASSWORD`** (required): Shared staff password used at login.
+- **`SESSION_SECRET`** (required in production): At least 16 characters; signs the httpOnly session JWT.
+- **`REDIS_URL`** (optional): Example `redis://localhost:6379`. If unset, rooms and camera presence are stored **in memory** in the Node process (lost on restart; use a single app instance).
+- **`NEXT_PUBLIC_APP_URL`** (recommended): Public site URL (`https://…`) for join links when behind a reverse proxy.
+- **`ICE_SERVERS_JSON`** (optional): JSON array of `RTCIceServer` objects. If omitted, a public Google STUN server is used.
 
-### 👨‍💼 **Admin Controls**
+Without **TURN**, some phone networks will not connect across NAT; use **coturn** (or a hosted TURN) for production venues. See comments in [`docker-compose.yml`](docker-compose.yml).
 
-**Main Dashboard:**
-- View all connected cameras in a grid layout
-- Monitor real-time statistics for each stream
-- Select which camera's audio to listen to
-- Control individual camera settings
-
-**Per-Camera Actions:**
-- **Fullscreen**: Open camera in fullscreen mode
-- **OBS View**: Generate individual URL for OBS Studio
-- **Transform**: Flip horizontally/vertically, rotate 90°
-- **Audio Select**: Choose as primary audio source
-- **Reconnect**: Restart connection if issues occur
-- **Kick**: Remove participant from room
-
-### 🎬 **OBS Studio Integration**
-
-1. In admin dashboard, click **⋮** → **"Individual View (OBS)"**
-2. Copy the generated URL
-3. In OBS Studio:
-   - Add **Browser Source**
-   - Paste the URL
-   - Set resolution (e.g., 1920x1080)
-   - The camera feed will appear with applied transforms
-
-## ⚙️ Configuration
-
-### Environment Variables
-
-Create a `.env.local` file in the root directory:
-
-```env
-# Base URL for the application
-NEXT_PUBLIC_BASE_URL=http://localhost:8080
-
-# WebRTC Configuration
-NEXT_PUBLIC_STUN_SERVERS=stun:stun.l.google.com:19302,stun:stun1.l.google.com:19302
-
-# Optional: Custom TURN servers for better NAT traversal
-NEXT_PUBLIC_TURN_SERVER_URL=turn:your-turn-server.com:3478
-NEXT_PUBLIC_TURN_USERNAME=username
-NEXT_PUBLIC_TURN_CREDENTIAL=password
-```
-
-### Stream Quality Settings
-
-**Recommended Settings by Use Case:**
-
-| Use Case | Resolution | FPS | Bitrate |
-|----------|------------|-----|---------|
-| Mobile/Preview | 480p | 15 | 500 kbps |
-| Standard Quality | 720p | 30 | 2000 kbps |
-| High Quality | 1080p | 30 | 4000 kbps |
-| Ultra Quality | 1080p | 60 | 6000 kbps |
-
-## 🏗️ Architecture
-
-```
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   Client Device │    │   Next.js App   │    │  Admin Dashboard│
-│   (Camera)      │◄──►│  + Socket.io    │◄──►│   (Control)     │
-│                 │    │   Server        │    │                 │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-         │                       │                       │
-         └───────────────────────┼───────────────────────┘
-                    WebRTC P2P Connection
-```
-
-### Tech Stack
-- **Frontend**: Next.js 15.3.3, React 19, TypeScript
-- **Styling**: Tailwind CSS 4, DaisyUI 5
-- **Real-time**: Socket.io 4.8.1
-- **WebRTC**: Native browser APIs
-- **Backend**: Node.js with Socket.io server
-
-## 🛠️ Development
-
-### Project Structure
-```
-tstream/
-├── src/
-│   ├── app/
-│   │   ├── admin/[roomId]/     # Admin dashboard
-│   │   ├── join/[roomId]/      # Client streaming page
-│   │   ├── camera/[participantId]/ # Individual camera view
-│   │   └── api/socket/         # Socket.io API endpoint
-│   └── components/             # Reusable React components
-├── server.js                   # Socket.io server
-├── public/                     # Static assets
-└── package.json
-```
-
-### Available Scripts
+## Docker Compose
 
 ```bash
-# Development server
-npm run dev
-
-# Production build
-npm run build
-
-# Start production server
-npm start
-
-# Lint code
-npm run lint
+export SESSION_PASSWORD='your-password'
+export SESSION_SECRET='at-least-16-characters-here'
+docker compose up --build
 ```
 
-### WebRTC Flow
+Then open `http://localhost:3000`.
 
-1. **Room Creation**: Admin creates room with Socket.io
-2. **Client Join**: Camera devices join room with password
-3. **Stream Start**: Client starts camera stream
-4. **Admin Connection**: Admin initiates WebRTC offer to streaming client
-5. **P2P Established**: Direct video/audio transmission begins
-6. **Statistics**: Real-time monitoring of connection quality
+## Production notes
 
-## 🔧 Troubleshooting
+- Terminate TLS at your reverse proxy; set `NEXT_PUBLIC_APP_URL` to the public `https://` origin so join links are correct.
+- Set `Secure` cookies: app uses `secure: true` on cookies when `NODE_ENV=production` — your proxy must send `X-Forwarded-Proto: https` (standard for Caddy/Traefik/nginx).
+- **Mesh** limits: each admin preview and each OBS viewer adds a separate decode path; keep concurrent previews modest, or rely on dedicated `/view/...` pages for full quality.
+- **Redis vs memory:** with **no** `REDIS_URL`, you avoid deploying Redis; tradeoff is no persistence across process restarts and no shared state across multiple Node replicas. Add Redis when you outgrow that.
 
-### Common Issues
+## CI / GHCR
 
-**No Video Stream:**
-- Check camera permissions in browser
-- Verify network connectivity
-- Try reconnecting from admin panel
+On every push to **`main`**, [`.github/workflows/docker-publish.yml`](.github/workflows/docker-publish.yml) builds a **multi-arch** image (`linux/amd64`, `linux/arm64`) and pushes to:
 
-**Connection Failed:**
-- Ensure STUN/TURN servers are accessible
-- Check firewall settings
-- Verify room password is correct
+`ghcr.io/<github_owner>/<repo_name>:latest` and `:sha-<commit>`
 
-**Poor Quality:**
-- Reduce resolution/bitrate in stream settings
-- Check network bandwidth
-- Try different STUN/TURN servers
+Use a lowercase repository path (GitHub enforces this for packages).
 
-**Audio Issues:**
-- Verify microphone permissions
-- Check audio source selection in admin panel
-- Ensure browser supports audio streaming
+## Project layout
 
-### Debug Mode
+- [`src/app/`](src/app/) — routes: `login`, `admin`, `camera`, `view/[cameraSessionId]`, `api/*`
+- [`src/server/io.ts`](src/server/io.ts) — Socket.IO signaling (`v1:*` events) + room/camera presence (Redis or in-memory)
+- [`src/hooks/`](src/hooks/) — `useSignalingSocket`, `usePublisher`, `useSubscriber`
+- [`src/lib/`](src/lib/) — auth, redis, rooms, media helpers
 
-Enable debug logging by opening browser console. The app provides detailed logs for:
-- Socket.io connections
-- WebRTC signaling
-- Stream statistics
-- Error conditions
+## Signaling protocol (v1)
 
-## 🤝 Contributing
+- `v1:admin:join` — admin receives `v1:admin:snapshot` and `v1:roster` updates.
+- `v1:camera:join` `{ joinCode, cameraSessionId, label }` — registers camera (requires active `MediaStream` from client before join).
+- `v1:viewer:subscribe` `{ cameraSessionId, viewerPeerId }` — triggers `v1:control:subscriber-add` to the camera.
+- `v1:webrtc:offer` / `answer` / `candidate` — relayed between matching camera and viewer sockets.
+- `v1:control:mute-audio` `{ cameraSessionId, muted }` — admin forces camera mic track off (and presence flag in the store).
 
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+## License
 
-### Development Guidelines
-- Use TypeScript for type safety
-- Follow existing code style
-- Add proper error handling
-- Include debug logging for new features
-- Test on multiple devices/browsers
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 🙏 Acknowledgments
-
-- **WebRTC** for real-time communication
-- **Socket.io** for reliable signaling
-- **Next.js** for the application framework
-- **DaisyUI** for beautiful UI components
-- **Tailwind CSS** for styling utilities
-
-## 📞 Support
-
-- 🐛 **Bug Reports**: [Open an issue](https://github.com/tomkoooo/tstream/issues)
-- 💡 **Feature Requests**: [Start a discussion](https://github.com/tomkoooo/tstream/discussions)
-- 📧 **Contact**: toth.tamas@sironic.hu
-
----
-
-**Made with ❤️ for seamless wireless streaming**
+Private / internal for tdarts.hu — adjust as needed.

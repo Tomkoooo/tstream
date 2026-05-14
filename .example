@@ -1,0 +1,15 @@
+# Staff gate — single shared password for tdarts crew devices
+SESSION_PASSWORD=change-me
+
+# JWT signing for httpOnly session cookie (min 16 chars; required in production)
+SESSION_SECRET=change-me-16chars-min
+
+# Optional: Redis for rooms + camera presence. If unset, data is kept in-memory in the Node
+# process (fine for one server / quick demos; lost on restart; not for multiple app replicas).
+# REDIS_URL=redis://localhost:6379
+
+# Public base URL for join links (include https behind reverse proxy)
+NEXT_PUBLIC_APP_URL=http://localhost:3000
+
+# Optional: WebRTC ICE servers JSON (STUN/TURN). Defaults to Google STUN if unset.
+# ICE_SERVERS_JSON=[{"urls":["stun:stun.l.google.com:19302"]}]
