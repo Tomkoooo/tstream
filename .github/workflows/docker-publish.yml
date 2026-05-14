@@ -1,13 +1,14 @@
 name: Docker publish
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - main, version2
   pull_request:
     branches:
       - main, version2
-      
+
 permissions:
   contents: read
   packages: write
